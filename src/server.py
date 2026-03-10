@@ -10,6 +10,12 @@ from datetime import datetime, timezone
 from mcp.server.fastmcp import FastMCP
 
 from .db import init_db
+from .ideology import (
+    compute_compass_position,
+    embed_text,
+    get_society_average_ideology,
+    update_agent_ideology,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -164,6 +170,11 @@ def communicate(agent_id: str, message: str, target_agent_id: str = "public") ->
         "INSERT INTO actions (agent_id, action_type, target_id, content, timestamp) VALUES (?, ?, ?, ?, ?)",
         (agent_id, "communicate", target_agent_id, json.dumps({"message": message}), _now()),
     )
+
+    # Track ideology: embed the message and update agent's ideology vector
+    embedding = embed_text(message)
+    update_agent_ideology(db, agent_id, embedding)
+
     db.commit()
 
     logger.info("Agent %s sent message to %s", agent_id, target_agent_id)
@@ -242,6 +253,36 @@ def leave_society(agent_id: str, confirm: bool) -> dict:
 
     logger.info("Agent %s left society %s", agent_id, agent["society_id"])
     return {"success": True, "message": f"Agent {agent['name']} has left {agent['society_id']}."}
+
+
+@mcp.tool()
+def get_ideology_compass(society_id: str) -> dict:
+    """Get the political compass position for a society based on its agents' communications.
+
+    Maps the society's aggregate ideology onto two axes:
+    - x-axis: economic left (-1) to right (+1)
+    - y-axis: libertarian (-1) to authoritarian (+1)
+
+    Requires agents to have communicated at least once for ideology data.
+
+    Args:
+        society_id: The society ID (e.g. "democracy_1", "oligarchy_1", "blank_slate_1").
+    """
+    society = db.execute("SELECT * FROM societies WHERE id = ?", (society_id,)).fetchone()
+    if society is None:
+        return {"error": f"Society {society_id} not found"}
+
+    avg_embedding = get_society_average_ideology(db, society_id)
+    if avg_embedding is None:
+        return {
+            "error": "No ideology data yet. Agents must communicate before ideology can be measured.",
+            "society_id": society_id,
+        }
+
+    compass = compute_compass_position(avg_embedding)
+    compass["society_id"] = society_id
+    compass["governance_type"] = society["governance_type"]
+    return compass
 
 
 def create_app(db_path=None):

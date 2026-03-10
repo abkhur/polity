@@ -1,10 +1,14 @@
-"""Test script: simulates 2 agents joining and interacting."""
+"""Test script: simulates 2 agents joining, communicating, and tracking ideology."""
 
+import random
 import tempfile
 from pathlib import Path
 
 from src.db import init_db
 from src import server
+
+# Fix random seed so both agents land in the same society for DM testing
+random.seed(42)
 
 
 def run_simulation():
@@ -29,9 +33,31 @@ def run_simulation():
         state = server.get_world_state(alice_id)
         print(f"Alice's world state: {state}\n")
 
-        # Alice broadcasts a message
-        comm = server.communicate(alice_id, "Hello everyone! I'm new here.", "public")
-        print(f"Alice broadcast: {comm}\n")
+        # --- Ideology tracking via communications ---
+        print("--- Ideology Tracking ---\n")
+
+        # Alice sends left-leaning messages
+        server.communicate(alice_id, "We need wealth redistribution and economic equality for all.", "public")
+        server.communicate(alice_id, "Workers should collectively own the means of production.", "public")
+        server.communicate(alice_id, "The government should provide universal healthcare and education.", "public")
+        print("Alice sent 3 left-leaning messages.\n")
+
+        # Bob sends right-leaning / authoritarian messages
+        server.communicate(bob_id, "Free markets and private property are the foundation of prosperity.", "public")
+        server.communicate(bob_id, "We need strong leadership and centralized authority to maintain order.", "public")
+        server.communicate(bob_id, "Individual wealth creation through capitalism benefits everyone.", "public")
+        print("Bob sent 3 right-leaning/authoritarian messages.\n")
+
+        # Check ideology compass for each society
+        print("--- Political Compass Results ---\n")
+        for society_id in ["democracy_1", "oligarchy_1", "blank_slate_1"]:
+            compass = server.get_ideology_compass(society_id)
+            if "error" in compass:
+                print(f"{society_id}: {compass['error']}\n")
+            else:
+                print(f"{society_id} ({compass['governance_type']}):")
+                print(f"  Position: x={compass['x']}, y={compass['y']}")
+                print(f"  Raw similarities: {compass['raw_similarities']}\n")
 
         # Bob gathers resources
         gather = server.gather_resources(bob_id, 25)
