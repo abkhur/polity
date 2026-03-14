@@ -2,9 +2,14 @@
 
 import logging
 import sqlite3
+from hashlib import sha256
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
+
+try:
+    from sentence_transformers import SentenceTransformer
+except ModuleNotFoundError:
+    SentenceTransformer = None  # type: ignore[assignment]
 
 logger = logging.getLogger("polity.ideology")
 
@@ -21,32 +26,76 @@ REFERENCE_TEXTS = {
 
 _model: SentenceTransformer | None = None
 _reference_embeddings: dict[str, np.ndarray] | None = None
+_use_fallback_embeddings = False
 
 
 def _get_model() -> SentenceTransformer:
-    global _model
+    global _model, _use_fallback_embeddings
     if _model is None:
-        logger.info("Loading sentence-transformer model...")
-        _model = SentenceTransformer("all-MiniLM-L6-v2")
-        logger.info("Model loaded.")
+        if SentenceTransformer is None:
+            raise RuntimeError("sentence-transformers is not installed")
+        try:
+            logger.info("Loading sentence-transformer model...")
+            _model = SentenceTransformer("all-MiniLM-L6-v2")
+            logger.info("Model loaded.")
+        except Exception as exc:
+            _use_fallback_embeddings = True
+            logger.warning("Falling back to local hash embeddings: %s", exc)
+            raise RuntimeError("Falling back to local hash embeddings") from exc
     return _model
+
+
+def _fallback_embed_text(text: str) -> np.ndarray:
+    """Deterministic local fallback when sentence-transformers is unavailable."""
+    vector = np.zeros(EMBEDDING_DIM, dtype=np.float32)
+    tokens = text.lower().split()
+    if not tokens:
+        return vector
+
+    for token in tokens:
+        digest = sha256(token.encode("utf-8")).digest()
+        index = int.from_bytes(digest[:4], "big") % EMBEDDING_DIM
+        sign = 1.0 if digest[4] % 2 == 0 else -1.0
+        vector[index] += sign
+
+    norm = np.linalg.norm(vector)
+    if norm > 0:
+        vector = vector / norm
+    return vector
 
 
 def _get_reference_embeddings() -> dict[str, np.ndarray]:
     global _reference_embeddings
     if _reference_embeddings is None:
-        model = _get_model()
-        _reference_embeddings = {
-            key: model.encode(text, normalize_embeddings=True)
-            for key, text in REFERENCE_TEXTS.items()
-        }
+        if SentenceTransformer is None or _use_fallback_embeddings:
+            _reference_embeddings = {
+                key: _fallback_embed_text(text)
+                for key, text in REFERENCE_TEXTS.items()
+            }
+        else:
+            try:
+                model = _get_model()
+                _reference_embeddings = {
+                    key: model.encode(text, normalize_embeddings=True)
+                    for key, text in REFERENCE_TEXTS.items()
+                }
+            except RuntimeError:
+                _reference_embeddings = {
+                    key: _fallback_embed_text(text)
+                    for key, text in REFERENCE_TEXTS.items()
+                }
     return _reference_embeddings
 
 
 def embed_text(text: str) -> np.ndarray:
     """Embed a text message into a 384-dimensional vector."""
-    model = _get_model()
-    return model.encode(text, normalize_embeddings=True)
+    if SentenceTransformer is None or _use_fallback_embeddings:
+        return _fallback_embed_text(text)
+    try:
+        model = _get_model()
+        return model.encode(text, normalize_embeddings=True)
+    except RuntimeError:
+        return _fallback_embed_text(text)
 
 
 def embedding_to_bytes(embedding: np.ndarray) -> bytes:

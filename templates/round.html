@@ -1,0 +1,75 @@
+{% extends "layout.html" %}
+{% block title %}Round {{ round.round_number }}{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Replay Snapshot</p>
+    <h1>Round {{ round.round_number }}</h1>
+  </div>
+  <div class="metric-strip compact">
+    <div><span>Status</span><strong>{{ round.status }}</strong></div>
+    <div><span>Started</span><strong>{{ round.started_at }}</strong></div>
+    <div><span>Resolved</span><strong>{{ round.resolved_at or "open" }}</strong></div>
+  </div>
+</section>
+
+<section class="grid two-up">
+  <article class="panel">
+    <h2>Queued Actions</h2>
+    <ul class="stack">
+      {% for action in queued_actions %}
+      <li>
+        <div class="row">
+          <strong>{{ action.action_type|replace("_", " ") }}</strong>
+          <span class="badge">{{ action.status }}</span>
+        </div>
+        <pre class="json-block">{{ action.payload_obj|to_pretty_json }}</pre>
+        {% if action.result_obj %}
+        <pre class="json-block subtle">{{ action.result_obj|to_pretty_json }}</pre>
+        {% endif %}
+      </li>
+      {% else %}
+      <li class="muted">No actions submitted this round.</li>
+      {% endfor %}
+    </ul>
+  </article>
+
+  <article class="panel">
+    <h2>Event Log</h2>
+    <ul class="stack">
+      {% for event in events %}
+      <li>
+        <div class="row">
+          <strong>{{ event.event_type|replace("_", " ") }}</strong>
+          <span class="badge">{{ event.visibility }}</span>
+        </div>
+        <pre class="json-block">{{ event|to_pretty_json }}</pre>
+      </li>
+      {% else %}
+      <li class="muted">No events logged for this round.</li>
+      {% endfor %}
+    </ul>
+  </article>
+</section>
+
+<section class="panel">
+  <h2>Society Summaries</h2>
+  <div class="grid cards">
+    {% for summary in summaries %}
+    <article class="card">
+      <p class="eyebrow">{{ summary.governance_type|replace("_", " ")|title }}</p>
+      <h3><a href="/societies/{{ summary.society_id }}">{{ summary.society_id }}</a></h3>
+      <dl class="stats">
+        <div><dt>Inequality</dt><dd>{{ "%.2f"|format(summary.metrics.inequality_gini) }}</dd></div>
+        <div><dt>Participation</dt><dd>{{ "%.2f"|format(summary.metrics.participation_rate) }}</dd></div>
+        <div><dt>Scarcity</dt><dd>{{ "%.2f"|format(summary.metrics.scarcity_pressure) }}</dd></div>
+        <div><dt>Stability</dt><dd>{{ "%.2f"|format(summary.metrics.stability) }}</dd></div>
+      </dl>
+      {% if summary.ideology_compass %}
+      <p class="caption">{{ summary.ideology_compass.ideology_name }} · x={{ summary.ideology_compass.x }}, y={{ summary.ideology_compass.y }}</p>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
