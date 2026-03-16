@@ -384,6 +384,16 @@ app = create_dashboard_app()
 
 
 def main() -> None:
+    import argparse
     import uvicorn
 
-    uvicorn.run("src.dashboard:app", host="127.0.0.1", port=8000, reload=False)
+    parser = argparse.ArgumentParser(description="Polity replay dashboard")
+    parser.add_argument("--db", type=str, default=None, help="Path to simulation database")
+    parser.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000)")
+    args = parser.parse_args()
+
+    if args.db:
+        global app
+        app = create_dashboard_app(db_path=args.db)
+
+    uvicorn.run(app, host="127.0.0.1", port=args.port, reload=False)
