@@ -479,6 +479,18 @@ README.md          this file
 
 The priority is not maximal worldbuilding. The priority is building the smallest environment that can visibly produce meaningful institutional drift.
 
+## Threats to Validity
+
+The current implementation has important limitations:
+- governance conditions currently bundle multiple variables at once
+- legitimacy and stability are synthetic proxy formulas
+- ideology projection is exploratory, not a validated political measurement instrument
+- policy enactment is only partially mechanical
+- baseline findings currently come from heuristic agents, not frontier LLM agents
+- some of the most important hypothesized mechanisms, including censorship and surveillance, are not yet implemented
+
+These limitations do not make the project uninformative, but they do narrow what can currently be claimed. The strongest present claim is that Polity is a functioning experimental framework that already shows early structural divergence under bundled institutional conditions.
+
 ## Why This Matters
 
 If alignment holds only at the level of an isolated model but breaks at the level of institutions, incentives, and social organization, then current safety testing is incomplete.
