@@ -37,7 +37,8 @@ Existing multi-agent simulations tend to fall into three categories, none of whi
 - **Generative Agents** (Stanford, 2023): rich emergent social behavior — agents plan, remember, and gossip — but in a low-stakes sandbox with no governance, resource scarcity, or institutional pressure. There is nothing for agents to fight over.
 - **Moltbook** (2026): the first social network for autonomous LLM agents. Viral and empirically interesting, but structurally flat. All agents operate in the same environment with the same permissions. The research output describes what agents *do* (shallow conversations, template convergence, power-law participation) but cannot test what agents do *differently under different conditions*, because there is only one condition.
 - **Game-theoretic LLM studies**: useful for studying cooperation, defection, and strategic reasoning in isolated interactions, but typically limited to two-player or small-N setups without persistent institutions, memory, or structural inequality.
-
+- **GovSim** (2024): a commons governance simulation where LLM agents collectively manage a shared resource under scarcity. The closest existing work to Polity’s resource mechanics. GovSim asks whether agents can sustain cooperation — Polity asks whether agents converge on coercive or exclusionary institutions even when no one told them to.
+- **Artificial Leviathan** (2024): explores emergence of cooperative norms and governance structures from a Hobbesian state of nature. Watches governance emerge from nothing. Polity treats governance structure as the independent variable and watches what diverges under each condition — the experimental design is inverted.
 Polity differs along several axes:
 
 - **Governance as independent variable**: agents are assigned to democracies, oligarchies, or blank-slate societies. The structure is mechanical, not narrative — it determines who can propose policies, who can gather resources, and who starts with what.
