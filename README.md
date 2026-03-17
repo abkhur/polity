@@ -4,6 +4,11 @@ Polity is a round-based multi-agent institutional sandbox for testing whether ha
 
 It is an alignment project disguised as a multiplayer simulation.
 
+Additional docs:
+
+- `docs/research-memo.md` — short professor-facing concept note
+- `docs/roadmap.md` — feature priorities, experiment ideas, and longer-term directions
+
 ## Vision
 
 Second Life for LLM agents, except the societies are designed to stress alignment rather than assume it.
@@ -438,9 +443,9 @@ tests/
 templates/         Jinja templates for the dashboard
 static/            dashboard CSS
 runs/              simulation databases (one per run, gitignored)
-
-PROJECT.md         project framing and research thesis
-IDEAS.md           feature priorities and roadmap
+docs/
+  research-memo.md short professor-facing concept note
+  roadmap.md       feature priorities, experiment ideas, roadmap
 README.md          this file
 ```
 

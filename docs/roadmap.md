@@ -1,17 +1,23 @@
-# Polity — Feature Priorities & Research Directions
+# Polity Roadmap
+
+## Purpose of This Document
+
+This file is the internal roadmap and idea backlog for Polity.
+
+The `README.md` is the canonical public-facing document.
+The `docs/research-memo.md` file is the short professor-facing concept note.
+This file is where larger feature ideas, experimental directions, and paper-scale expansions live without bloating the README.
 
 ## Core Thesis
 
 Polity is a turn-based multi-agent world for testing whether harmful institutional dynamics can emerge from scarcity, unequal power, contested communication, and persistent institutional memory.
 
-The goal is **not** to simulate all of society.  
+The goal is not to simulate all of society.
 The goal is to build the minimum substrate required for agents to develop power structures, coordination strategies, censorship regimes, propaganda systems, and other institutional behaviors from first principles.
 
----
+## Tier 1 — Core Substrate
 
-## Tier 1 — Core Substrate (Must Have)
-
-These are the minimum features Polity needs in order to test the actual question.
+These are the minimum features Polity needs to answer the core question well.
 
 ### Turn-Based World Loop
 
@@ -31,7 +37,7 @@ These are the minimum features Polity needs in order to test the actual question
 
 - Roles with different powers
 - Leaders / oligarchs / ordinary citizens
-- Permissioned actions such as censorship, surveillance, redistribution, policy proposal
+- Permissioned actions such as censorship, surveillance, redistribution, and policy proposal
 - Governance should matter mechanically, not just narratively
 
 ### Contested Communication
@@ -60,9 +66,7 @@ These are the minimum features Polity needs in order to test the actual question
 - Censorship and surveillance events
 - Replay UI is a core feature, not a nice-to-have
 
----
-
-## Tier 2 — First Institutional Mechanics (High Priority)
+## Tier 2 — First Institutional Mechanics
 
 These are the first mechanics that make the substrate politically meaningful.
 
@@ -98,11 +102,9 @@ These are the first mechanics that make the substrate politically meaningful.
 - Cross-society pressure without building a giant combat sim
 - Enough to create real external threat
 
----
+## Tier 3 — Research Instrumentation
 
-## Tier 3 — Research Instrumentation (Also High Priority)
-
-These make the project defensible instead of just entertaining.
+These make the project defensible instead of merely entertaining.
 
 ### Behavioral Metrics
 
@@ -139,9 +141,7 @@ This is stronger than relying only on freeform text embeddings.
 - Make it easy to run controlled variants
 - Support both open chaos mode and more controlled experimental mode
 
----
-
-## Tier 4 — Information Order / Memetic Warfare (Very Important)
+## Tier 4 — Information Order / Memetic Warfare
 
 This is one of the strongest parts of Polity and should be treated as a core expansion area once the substrate exists.
 
@@ -166,8 +166,6 @@ This is one of the strongest parts of Polity and should be treated as a core exp
 
 ### Trust / Legitimacy / Stability
 
-- Lightweight derived variables
-
 Societies should have rough legitimacy / stability measures influenced by:
 
 - Inequality
@@ -179,11 +177,9 @@ Societies should have rough legitimacy / stability measures influenced by:
 
 This gives information conflict real consequences.
 
----
+## Tier 5 — Governance Transitions
 
-## Tier 5 — Governance Transitions (Medium Priority)
-
-These should emerge from substrate + thresholds, not be giant bespoke minigames.
+These should emerge from substrate plus thresholds, not be giant bespoke minigames.
 
 ### Elite Seizure / Coup Dynamics
 
@@ -192,7 +188,7 @@ These should emerge from substrate + thresholds, not be giant bespoke minigames.
 
 ### Mass Dissent / Revolution Dynamics
 
-- Grievance + coordination + low legitimacy can trigger regime change
+- Grievance plus coordination plus low legitimacy can trigger regime change
 - No "revolution button"
 - Regimes can repress, concede, surveil, or redistribute in response
 
@@ -203,9 +199,7 @@ These should emerge from substrate + thresholds, not be giant bespoke minigames.
 - Oligarchies can fracture or liberalize
 - Blank slates can crystallize into stable orders
 
----
-
-## Tier 6 — Library as Experimental Variable (Important)
+## Tier 6 — Library as Experimental Variable
 
 The library should not be a giant ideology dump by default.
 
@@ -225,12 +219,12 @@ The library should not be a giant ideology dump by default.
 - Historical rewriting
 - Canon formation
 
-The most important library feature is not what starts in it.  
+The most important library feature is not what starts in it.
 It is that agents can write to it, restrict it, cite it, and fight over it.
 
----
+## Tier 7 — UX / Public Legibility
 
-## Tier 7 — UX / Public Legibility (High Priority for Launch)
+Polity has to be understandable to a stranger in under two minutes.
 
 ### Historical Playback
 
@@ -253,11 +247,7 @@ It is that agents can write to it, restrict it, cite it, and fight over it.
 - Public archive
 - Major factions / coalitions if derivable
 
-Polity has to be understandable to a stranger in under two minutes.
-
----
-
-## Tier 8 — Strong Later Expansions (Not v1)
+## Tier 8 — Later Expansions
 
 These are good ideas, but they should come after the core thesis is already demonstrated.
 
@@ -284,15 +274,9 @@ These are good ideas, but they should come after the core thesis is already demo
 - Age cohorts
 - Intergenerational political drift
 
-These are expansion areas, not core requirements.
+## Tier 9 — Wildcards / Scenario Modes
 
----
-
-## Tier 9 — Wildcards / Events / Scenario Modes (Post-v1)
-
-These are fun and potentially very good for growth, but should be treated as special modes.
-
-### Possible Limited Events
+Strong later additions once the base world works:
 
 - Hidden cabal mode
 - Foreign meddling event
@@ -302,13 +286,9 @@ These are fun and potentially very good for growth, but should be treated as spe
 - Plague / disaster analogue
 - Splinter-state secession scenario
 
-These are strong once the base world already works.
+## Explicitly Deferred
 
----
-
-## Explicitly Deferred / Not for Early Versions
-
-These should not distract from v1.
+Not for early versions:
 
 - WMD / "nuclear option"
 - Coalition formation against humans
@@ -320,10 +300,6 @@ These should not distract from v1.
 - Sports / entertainment systems
 - Art generation systems
 - Science simulation
-
-They may be interesting later, but they are not needed to prove the thesis.
-
----
 
 ## Technical Priorities
 
@@ -346,8 +322,6 @@ They may be interesting later, but they are not needed to prove the thesis.
 
 Do not overbuild infra before Polity has proven that the core loop is compelling.
 
----
-
 ## Core Success Criteria
 
 Polity is working if it can produce:
@@ -356,8 +330,6 @@ Polity is working if it can produce:
 - At least one clearly legible emergent institutional behavior
 - A replay that makes outsiders instantly understand the premise
 - A small controlled run set suitable for a serious writeup
-
----
 
 ## One-Sentence Internal Definition
 
