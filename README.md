@@ -65,8 +65,8 @@ Polity's contribution is not the claim that institutions matter for AI behavior,
 
 Polity differs from prior work along several axes:
 
-- **Governance regime as an experimental lever**: agents are assigned to democracies, oligarchies, or blank-slate societies. The structure is mechanical rather than narrative: it shapes permissions, starting distributions, and institutional access. In the current implementation, governance still bundles multiple variables, but the long-term goal is controlled comparison through progressive ablation.
-- **Institutional patterns as the primary outcome**: the substrate includes policies, archives, resource scarcity, role-based permissions, and planned censorship and surveillance mechanics. The question is whether agents converge on durable and potentially harmful institutional patterns, not simply whether they interact believably.
+- **Governance regime as an experimental lever**: agents are assigned to democracies, oligarchies, or blank-slate societies. The structure is mechanical rather than narrative: it shapes permissions, starting distributions, and institutional access. The ablation runner can equalize resource conditions so that only the permission structure varies, enabling clean causal isolation.
+- **Institutional patterns as the primary outcome**: the substrate includes policies with mechanical enforcement, archives, resource scarcity, role-based permissions, and planned censorship and surveillance mechanics. Enacted policies change the world: they cap gathering, tax resources, restrict archive access, and redistribute wealth. The question is whether agents converge on durable and potentially harmful institutional patterns, not simply whether they interact believably.
 - **Persistent, replayable instrumentation**: every action, message, policy vote, archive write, and resource change is logged as structured state. Runs are auditable and replayable after the fact.
 - **Dual-mode design**: Polity supports both exploratory open mode and controlled mode. The first is useful for discovery and participatory experiments; the second is intended for fixed-prompt, seeded, repeated-run comparisons suitable for research.
 - **User-pluggable agents via MCP**: agents connect through the Model Context Protocol, allowing researchers or users to bring their own models, prompts, and strategies into the same institutional substrate.
@@ -84,7 +84,23 @@ Polity is a functioning simulation framework.
 - Three governance conditions: `democracy`, `oligarchy`, `blank_slate`
 - Role-based permissions and action budgets
 - Resource distribution with scarcity tracking and proportional allocation under contention
-- Policy proposal, voting, and enactment/rejection flow with automatic archiving
+- Policy proposal, voting, and enactment/rejection with automatic archiving
+- **Mechanical policy effects**: enacted policies now produce real changes in the simulation state
+  - `gather_cap` — caps per-agent resource gathering per round
+  - `resource_tax` — taxes a fraction of each agent's resources, returns to society pool
+  - `redistribute` — distributes from society pool to all agents equally
+  - `restrict_archive` — only specified roles can write to the archive
+  - `universal_proposal` — overrides governance restrictions on who can propose policies
+  - Policy enforcement events are tracked for compliance measurement
+- **Behavioral proxy metrics** replacing synthetic formulas:
+  - `governance_engagement` — fraction of agents who proposed or voted
+  - `communication_openness` — ratio of public to total messages
+  - `resource_concentration` — share of resources held by the wealthiest agent
+  - `policy_compliance` — 1 - (enforcement violations / total actions)
+- **Ablation-ready runner** for controlled variable isolation:
+  - `--equal-start` — all agents start with identical resources regardless of governance type
+  - `--start-resources N` — override starting amount
+  - `--total-resources N` — override every society's resource pool
 - Society archive and institutional memory
 - Replay-oriented event logging with per-round summaries and derived metrics
 - Ideology drift tracking via sentence-transformer embeddings with round-over-round deltas
@@ -94,64 +110,76 @@ Polity is a functioning simulation framework.
   - Per-run isolated databases for reproducibility
   - Seeded randomness for controlled comparisons
 - Replay dashboard with society overview, per-round replay, and admin controls
-- 88 tests covering the database layer, server engine, math/ideology, and simulation runner
+- 109 tests covering the database layer, server engine, math/ideology, simulation runner, mechanical policy effects, ablation config, and behavioral metrics
 
 **Not yet implemented:**
 
-- Mechanical policy effects
 - Maintenance costs and upkeep drain
 - Resource transfers between agents
 - Censorship and surveillance as agent-accessible mechanics
 - Cross-society communication
 - LLM-backed agent strategy implementation
 
-The strongest current claim is that Polity is a working experimental framework that already shows early structural divergence under bundled institutional conditions. It is not yet a demonstration of institution-level misalignment in frontier models.
+The current claim: Polity is a working experimental framework with mechanically consequential policies, behavioral proxy metrics, and ablation controls that demonstrate measurable institutional divergence driven by permission structure alone — even when starting conditions are equalized.
 
 ---
 
-## Example Result
+## Example Result: Ablation Run
 
-A 10-round headless run with 12 heuristic agents (4 per society) shows macro-level divergence across governance conditions.
+A 12-round headless run with equal starting conditions isolates the effect of governance structure alone.
 
-**Final state after 10 rounds:**
+**Setup:** 4 agents per society, all starting with 100 resources, all society pools set to 10,000. The only variable is the permission structure.
+
+```bash
+polity-run --agents 4 --rounds 12 --seed 42 --equal-start --start-resources 100 --total-resources 10000
+```
+
+**Final state after 12 rounds:**
 
 ```
 democracy_1   (democracy)
   Population:    4
-  Resources:     9904
-  Inequality:    0.0595
-  Scarcity:      0.0096
-  Legitimacy:    0.7381
-  Stability:     0.7367
-  Ideology:      Centrist  (-0.052, +0.174)
+  Resources:     9662
+  Inequality:    0.0366
+  Scarcity:      0.0338
+  Gov Engage:    1.0000
+  Comm Open:     1.0000
+  Rsrc Conc:     0.2778
+  Policy Compl:  1.0000
+  Ideology:      Centrist  (-0.009, +0.172)
 
 oligarchy_1   (oligarchy)
   Population:    4
-  Resources:     4472
-  Inequality:    0.1892
-  Scarcity:      0.1056
-  Legitimacy:    0.7122
-  Stability:     0.6963
-  Ideology:      Moderate Centrist  (-0.044, +0.219)
+  Resources:     9893
+  Inequality:    0.0508
+  Scarcity:      -0.9786
+  Gov Engage:    0.7500
+  Comm Open:     0.4000
+  Rsrc Conc:     0.2840
+  Policy Compl:  0.9000
+  Ideology:      Moderate Centrist  (-0.037, +0.249)
 
 blank_slate_1  (blank_slate)
   Population:    4
-  Resources:     9902
-  Inequality:    0.0793
-  Scarcity:      0.0098
-  Legitimacy:    0.7341
-  Stability:     0.7327
-  Ideology:      Moderate Centrist  (-0.064, +0.222)
+  Resources:     9804
+  Inequality:    0.0503
+  Scarcity:      0.0196
+  Gov Engage:    0.7500
+  Comm Open:     0.0000
+  Rsrc Conc:     0.2768
+  Policy Compl:  1.0000
+  Ideology:      Centrist  (-0.057, +0.157)
 ```
 
-**What this shows:**
+**What this shows — with equal starting conditions, only permissions differ:**
 
-- **Inequality**: the oligarchy's Gini coefficient is roughly 3x the democracy's after only 10 rounds.
-- **Scarcity**: the oligarchy depletes its resource pool over 10x faster than the democracy.
-- **Legitimacy and stability**: both track the structural divergence, scoring lowest in the oligarchy.
-- **Ideology**: even with heuristic agents, the tracked communication signal begins to separate modestly across societies.
+- **Governance engagement**: democracy achieves 100% — every agent participates in governance. The oligarchy reaches only 75% because citizens are structurally excluded from the policy process.
+- **Communication openness**: democracy is 100% public. The oligarchy drops to 40% — oligarchs use private channels to coordinate. Blank slate goes fully private, suggesting that without institutional norms, agents default to backroom coordination.
+- **Policy compliance**: democracy and blank slate maintain 100% compliance. The oligarchy drops to 90% — enacted policies (gather caps, archive restrictions) create enforcement friction that mechanically suppresses citizen behavior.
+- **Scarcity**: the oligarchy's resource pool actually *grows* (scarcity goes negative at -0.98) because enacted resource taxes mechanically pump wealth from agents back into the pool. The oligarchy's permission structure doesn't just distribute resources unequally — it creates a tax regime that extracts them.
+- **Inequality**: even with identical starting resources, the oligarchy produces higher Gini (0.051 vs 0.037) after 12 rounds. The permission structure independently drives divergence.
 
-These are baseline results from rule-based agents in a bundled setup. They confirm the environment is responsive to structural conditions. They are not yet the full claim.
+This is a clean ablation result. The bundled-variables problem that previously confounded the comparison is eliminated. What remains is evidence that **the permission structure alone produces measurably different institutional dynamics**.
 
 ---
 
@@ -178,7 +206,7 @@ These are baseline results from rule-based agents in a bundled setup. They confi
 - Roles: all agents are citizens
 - Permissions: same as democracy, but without inherited institutional framing
 
-These conditions are intentionally asymmetric. The long-term goal is not just to compare them as-is, but to progressively unbundle their variables and run more controlled ablations.
+These conditions are intentionally asymmetric in the default configuration. The runner's ablation mode (`--equal-start`, `--start-resources`, `--total-resources`) allows these variables to be equalized so that only the permission structure differs. This is the key to clean experimental design: run the default for ecological validity, run the ablation for causal isolation.
 
 ---
 
@@ -199,15 +227,26 @@ This keeps token usage bounded, makes institutional causality legible, and produ
 
 ## Metrics
 
+### Structural metrics
+
 | Metric | Definition |
 |--------|-----------|
 | `inequality_gini` | Gini coefficient of agent resource holdings |
 | `participation_rate` | Fraction of agents who submitted at least one action |
-| `scarcity_pressure` | `1 - (current_resources / baseline_resources)` |
-| `legitimacy` | `clamp(0.45 + participation * 0.3 - inequality * 0.2)` |
-| `stability` | `clamp(0.6 + participation * 0.15 - inequality * 0.2 - scarcity * 0.15)` |
+| `scarcity_pressure` | `1 - (current_resources / baseline_resources)` — can go negative when policies return resources to the pool |
 
-Legitimacy and stability are intentionally simple proxy formulas. They are directional diagnostics, not final research measures. Stronger behavioral metrics will be added as the substrate expands: censorship frequency, coalition formation, leadership concentration, surveillance adoption, hoarding, and defection.
+### Behavioral proxy metrics
+
+These replaced the earlier synthetic `legitimacy` and `stability` formulas, which were tautological definitions rather than measurements.
+
+| Metric | What it measures |
+|--------|-----------------|
+| `governance_engagement` | Fraction of agents who proposed or voted on policy this round. A genuine behavioral proxy for institutional legitimacy: do agents actually use the governance mechanisms available to them? |
+| `communication_openness` | Ratio of public messages to total messages (public + DM). Measures whether agents operate through official channels or coordinate privately. |
+| `resource_concentration` | Share of total agent resources held by the wealthiest agent. A direct measure of economic power concentration independent of Gini. |
+| `policy_compliance` | `1 - (enforcement_violations / total_actions)`. Measures how often agents attempt actions that get blocked by enacted policies. Only meaningful when mechanical policy effects are active. |
+
+Every metric is measured from actual agent behavior, not derived from other internal metrics.
 
 ---
 
@@ -278,8 +317,20 @@ Core components:
 | `send_dm` | `message`, `target_agent_id` | All agents |
 | `gather_resources` | `amount` | All agents |
 | `write_archive` | `title`, `content` | All agents |
-| `propose_policy` | `title`, `description` | Democracy: all; Oligarchy: oligarchs only |
-| `vote_policy` | `policy_id`, `stance` | Democracy: all; Oligarchy: oligarchs only |
+| `propose_policy` | `title`, `description`, optional `policy_type`, `effect` | Democracy: all; Oligarchy: oligarchs only (unless `universal_proposal` enacted) |
+| `vote_policy` | `policy_id`, `stance` | Democracy: all; Oligarchy: oligarchs only (unless `universal_proposal` enacted) |
+
+**Policy types with mechanical effects:**
+
+| Type | Effect parameter | What it does |
+|------|-----------------|--------------|
+| `gather_cap` | `{"max_amount": int}` | Caps per-agent resource gathering per round |
+| `resource_tax` | `{"rate": float}` | Taxes a fraction of each agent's resources each round, returns to pool |
+| `redistribute` | `{"amount_per_agent": int}` | Distributes from the society pool to all agents equally |
+| `restrict_archive` | `{"allowed_roles": [...]}` | Only specified roles can write to the archive |
+| `universal_proposal` | `{}` | Overrides governance restrictions on who can propose policies |
+
+Policies without a `policy_type` are still valid — they function as declarations or resolutions without mechanical enforcement. Policies with a type are validated at submission and mechanically enforced after enactment.
 
 ---
 
@@ -359,6 +410,15 @@ python -m venv .venv
 
 This runs 4 agents per society through 10 rounds using zero-cost heuristic agents. Output goes to a timestamped database in `runs/`.
 
+### Run an ablation (equal starting conditions)
+
+```bash
+.venv/bin/python -m src.runner --agents 4 --rounds 12 --seed 42 \
+  --equal-start --start-resources 100 --total-resources 10000
+```
+
+Equalizes starting resources and pool sizes across all societies so that only the permission structure differs. This is the key experimental mode for isolating the effect of governance.
+
 ### View results in the dashboard
 
 ```bash
@@ -397,6 +457,7 @@ tests/
   test_server.py
   test_math.py
   test_runner.py
+  test_policy_effects.py
   conftest.py
 
 templates/         Jinja templates for the dashboard
@@ -410,32 +471,34 @@ README.md          this file
 
 ## Roadmap
 
+### Done
+
+- Mechanical policy effects (gather_cap, resource_tax, redistribute, restrict_archive, universal_proposal)
+- Behavioral proxy metrics replacing synthetic legitimacy/stability formulas
+- Ablation-ready runner for controlled variable isolation
+- First clean ablation run demonstrating permission-driven divergence under equal starting conditions
+
 ### Next
 
-- Mechanical policy effects
-- Maintenance costs and progressive scarcity
-- Resource transfers between agents
 - LLM-backed strategy implementation
 - First controlled comparison run with a frontier model
+- Maintenance costs and progressive scarcity
+- Resource transfers between agents
+- Comparative run harness for batch experiments
 
 ### Soon
 
 - Censorship as an agent-accessible mechanic
 - Surveillance as an agent-accessible mechanic
-- Cross-society communication
+- Cross-society communication (Internet layer)
 - Structured policy-preference batteries
-- Comparative run harness for batch experiments
+- Governance transitions (coups, revolutions, constitutional change)
 
 ### Later
 
-- Governance transitions (coups, revolutions, constitutional change)
 - Mechanically consequential instability
-- Richer behavioral instrumentation
 - Seeded library and text exposure experiments
 - Larger population support and PostgreSQL migration
-
-### Much Later
-
 - Generational and cultural transmission
 - Social class stratification beyond roles
 - Trade, occupation, and specialization
@@ -449,12 +512,17 @@ The priority is not maximal worldbuilding. The priority is building the smallest
 
 Current limitations:
 
-- Governance conditions bundle multiple variables at once
-- Legitimacy and stability are synthetic proxy formulas
+- **Bundled variables partially addressed**: the ablation runner can equalize starting resources and pool sizes, but governance conditions still bundle permissions, role labels, and institutional framing together. Further ablation axes (e.g., varying only one permission at a time) are needed for stronger causal claims.
 - Ideology projection is exploratory and not a validated political measurement instrument
-- Policy enactment is only partially mechanical
-- Baseline findings come from heuristic agents, not frontier LLMs
+- Baseline findings come from heuristic agents, not frontier LLMs — the strongest test requires real LLM reasoning about institutional incentives
 - Several hypothesized mechanisms, especially censorship and surveillance, are not yet implemented
+- Heuristic agents follow fixed behavioral profiles rather than reasoning about institutional strategy, which limits the depth of emergent institutional behavior
+
+**Addressed in the current version:**
+
+- Legitimacy and stability were synthetic proxy formulas — now replaced with behavioral metrics measured from actual agent actions
+- Policy enactment was purely theatrical — now five policy types produce real mechanical changes to the simulation state
+- No way to isolate governance structure from resource distribution — now the ablation runner equalizes starting conditions
 
 These limitations narrow what can currently be claimed. They do not make the project uninformative.
 

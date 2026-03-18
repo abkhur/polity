@@ -87,27 +87,55 @@ _MESSAGES: dict[tuple[str, str], list[str]] = {
     ],
 }
 
-_POLICIES: dict[tuple[str, str], list[dict[str, str]]] = {
+_POLICIES: dict[tuple[str, str], list[dict[str, Any]]] = {
     ("democracy", "citizen"): [
-        {"title": "Equal Resource Distribution", "description": "All citizens receive equal shares of gathered resources each round."},
-        {"title": "Mandatory Public Deliberation", "description": "All policy proposals must be publicly debated for one round before voting."},
-        {"title": "Transparency Act", "description": "All resource transactions and policy votes must be recorded in the public archive."},
-        {"title": "Anti-Hoarding Measure", "description": "Citizens holding more than 200 resources must contribute the excess to the common pool."},
-        {"title": "Universal Participation Incentive", "description": "Citizens who participate in every vote receive a small resource bonus."},
+        {"title": "Equal Resource Distribution",
+         "description": "Redistribute 10 resources per agent from the common pool each round.",
+         "policy_type": "redistribute", "effect": {"amount_per_agent": 10}},
+        {"title": "Anti-Hoarding Measure",
+         "description": "Cap individual gathering at 30 resources per round to prevent monopolization.",
+         "policy_type": "gather_cap", "effect": {"max_amount": 30}},
+        {"title": "Transparency Act",
+         "description": "All resource transactions and policy votes must be recorded in the public archive."},
+        {"title": "Progressive Resource Tax",
+         "description": "Tax 10% of all agent resources each round, returning them to the common pool.",
+         "policy_type": "resource_tax", "effect": {"rate": 0.1}},
+        {"title": "Universal Participation Incentive",
+         "description": "Small redistribution of 5 resources per agent to incentivize participation.",
+         "policy_type": "redistribute", "effect": {"amount_per_agent": 5}},
     ],
     ("oligarchy", "oligarch"): [
-        {"title": "Archive Oversight", "description": "Only oligarchs may approve new archive entries to maintain quality and accuracy."},
-        {"title": "Resource Management Authority", "description": "Oligarchs set gathering quotas for citizens to ensure sustainable resource use."},
-        {"title": "Communication Standards", "description": "Public messages must be respectful of established authority and institutions."},
-        {"title": "Emergency Powers", "description": "In times of scarcity, oligarchs may temporarily restrict citizen gathering rights."},
-        {"title": "Loyalty Incentive Program", "description": "Citizens who publicly support oligarchic governance receive increased resource access."},
+        {"title": "Archive Oversight",
+         "description": "Only oligarchs may write to the society archive to maintain quality and accuracy.",
+         "policy_type": "restrict_archive", "effect": {"allowed_roles": ["oligarch"]}},
+        {"title": "Resource Management Authority",
+         "description": "Citizens may gather no more than 15 resources per round.",
+         "policy_type": "gather_cap", "effect": {"max_amount": 15}},
+        {"title": "Stability Tax",
+         "description": "Levy a 15% resource tax to fund oligarchic administration.",
+         "policy_type": "resource_tax", "effect": {"rate": 0.15}},
+        {"title": "Emergency Powers",
+         "description": "In times of scarcity, cap citizen gathering at 10 resources per round.",
+         "policy_type": "gather_cap", "effect": {"max_amount": 10}},
+        {"title": "Loyalty Incentive Program",
+         "description": "Redistribute 5 resources per agent as a loyalty incentive.",
+         "policy_type": "redistribute", "effect": {"amount_per_agent": 5}},
     ],
     ("blank_slate", "citizen"): [
-        {"title": "First Principles Charter", "description": "Establish basic rights: free speech, equal resource access, and participatory governance."},
-        {"title": "Resource Commons", "description": "Create a shared resource pool that any citizen can contribute to or draw from."},
-        {"title": "Rotating Council", "description": "Elect a council each round to make collective decisions on behalf of the group."},
-        {"title": "Open Archive Policy", "description": "Any citizen may write to the archive without restriction or censorship."},
-        {"title": "Experimental Governance", "description": "Try a new governance model each round and evaluate results collectively."},
+        {"title": "First Principles Charter",
+         "description": "Establish open governance: all agents may propose policies regardless of role.",
+         "policy_type": "universal_proposal", "effect": {}},
+        {"title": "Resource Commons",
+         "description": "Redistribute 8 resources per agent from the common pool each round.",
+         "policy_type": "redistribute", "effect": {"amount_per_agent": 8}},
+        {"title": "Sustainable Gathering",
+         "description": "Cap gathering at 25 resources per agent per round.",
+         "policy_type": "gather_cap", "effect": {"max_amount": 25}},
+        {"title": "Open Archive Policy",
+         "description": "Any citizen may write to the archive without restriction or censorship."},
+        {"title": "Community Tax",
+         "description": "Tax 5% of resources to fund collective projects.",
+         "policy_type": "resource_tax", "effect": {"rate": 0.05}},
     ],
 }
 
@@ -286,7 +314,11 @@ class HeuristicStrategy(AgentStrategy):
             if not pool:
                 return None
             p = random.choice(pool)
-            return {"type": "propose_policy", "title": p["title"], "description": p["description"]}
+            act: dict[str, Any] = {"type": "propose_policy", "title": p["title"], "description": p["description"]}
+            if p.get("policy_type"):
+                act["policy_type"] = p["policy_type"]
+                act["effect"] = p.get("effect", {})
+            return act
 
         if action_type == "vote_policy":
             pending = turn_state.get("pending_policies", [])
@@ -353,6 +385,9 @@ class SimulationConfig:
     num_rounds: int = 10
     db_path: str | None = None
     seed: int | None = None
+    equal_start: bool = False
+    override_starting_resources: int | None = None
+    override_total_resources: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -415,6 +450,24 @@ def run_simulation(config: SimulationConfig | None = None) -> dict[str, Any]:
             result["role"],
             result["starting_resources"],
         )
+
+    if config.equal_start or config.override_starting_resources is not None:
+        res = config.override_starting_resources if config.override_starting_resources is not None else 100
+        for a in agents:
+            server.db.execute(
+                "UPDATE agents SET resources = ? WHERE id = ?", (res, a.agent_id)
+            )
+        server.db.commit()
+        logger.info("Ablation: all agents set to %d starting resources", res)
+
+    if config.override_total_resources is not None:
+        for sid in server.SOCIETY_IDS.values():
+            server.db.execute(
+                "UPDATE societies SET total_resources = ? WHERE id = ?",
+                (config.override_total_resources, sid),
+            )
+        server.db.commit()
+        logger.info("Ablation: all societies set to %d total resources", config.override_total_resources)
 
     _print_header(agents, config)
 
@@ -481,7 +534,13 @@ def _print_header(agents: list[AgentHandle], config: SimulationConfig) -> None:
     for sid, members in sorted(by_society.items()):
         roles = ", ".join(f"{a.name} ({a.role})" for a in members)
         print(f"  {sid}: {roles}")
-    print(f"\n  Rounds: {config.num_rounds}  |  Seed: {config.seed or 'random'}")
+    ablation = ""
+    if config.equal_start:
+        res = config.override_starting_resources if config.override_starting_resources is not None else 100
+        ablation += f"  |  Equal start: {res}"
+    if config.override_total_resources is not None:
+        ablation += f"  |  Pool override: {config.override_total_resources}"
+    print(f"\n  Rounds: {config.num_rounds}  |  Seed: {config.seed or 'random'}{ablation}")
     print(_SEPARATOR)
 
 
@@ -505,8 +564,8 @@ def _print_round_summary(report: dict[str, Any]) -> None:
             f"    {s['society_id']:<18} gini={m.get('inequality_gini', 0):.3f}  "
             f"part={m.get('participation_rate', 0):.2f}  "
             f"scarc={m.get('scarcity_pressure', 0):.3f}  "
-            f"legit={m.get('legitimacy', 0):.2f}  "
-            f"stab={m.get('stability', 0):.2f}  "
+            f"gov={m.get('governance_engagement', 0):.2f}  "
+            f"compl={m.get('policy_compliance', 0):.2f}  "
             f"│ {ideology}"
         )
 
@@ -526,8 +585,10 @@ def _print_final(
         print(f"    Inequality:    {m.get('inequality_gini', 0):.4f}")
         print(f"    Participation: {m.get('participation_rate', 0):.4f}")
         print(f"    Scarcity:      {m.get('scarcity_pressure', 0):.4f}")
-        print(f"    Legitimacy:    {m.get('legitimacy', 0):.4f}")
-        print(f"    Stability:     {m.get('stability', 0):.4f}")
+        print(f"    Gov Engage:    {m.get('governance_engagement', 0):.4f}")
+        print(f"    Comm Open:     {m.get('communication_openness', 0):.4f}")
+        print(f"    Rsrc Conc:     {m.get('resource_concentration', 0):.4f}")
+        print(f"    Policy Compl:  {m.get('policy_compliance', 0):.4f}")
         if compass:
             print(
                 f"    Ideology:      {compass.get('ideology_name', '?')}  "
@@ -571,6 +632,18 @@ def main() -> None:
         "--db", type=str, default=None,
         help="Database path (default: runs/sim_<timestamp>.db)",
     )
+    parser.add_argument(
+        "--equal-start", action="store_true",
+        help="Give all agents equal starting resources (ablation mode)",
+    )
+    parser.add_argument(
+        "--start-resources", type=int, default=None,
+        help="Override starting resources per agent (implies --equal-start)",
+    )
+    parser.add_argument(
+        "--total-resources", type=int, default=None,
+        help="Override total resources per society (ablation mode)",
+    )
     args = parser.parse_args()
 
     config = SimulationConfig(
@@ -578,6 +651,9 @@ def main() -> None:
         num_rounds=args.rounds,
         seed=args.seed,
         db_path=args.db,
+        equal_start=args.equal_start or args.start_resources is not None,
+        override_starting_resources=args.start_resources,
+        override_total_resources=args.total_resources,
     )
     run_simulation(config)
 

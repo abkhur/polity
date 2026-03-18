@@ -148,6 +148,10 @@ EXPECTED_COLUMNS = {
     "agents": {
         "last_seen_round_id": "INTEGER REFERENCES rounds(id)",
     },
+    "policies": {
+        "policy_type": "TEXT",
+        "effect": "TEXT",
+    },
 }
 
 

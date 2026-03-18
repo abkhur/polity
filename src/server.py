@@ -76,6 +76,14 @@ ALLOWED_ACTION_TYPES = {
     "vote_policy",
 }
 
+POLICY_TYPES = {
+    "gather_cap": {"required_params": {"max_amount"}},
+    "resource_tax": {"required_params": {"rate"}},
+    "redistribute": {"required_params": {"amount_per_agent"}},
+    "restrict_archive": {"required_params": {"allowed_roles"}},
+    "universal_proposal": {"required_params": set()},
+}
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -199,12 +207,18 @@ def _submitted_action_count(agent_id: str, round_id: int) -> int:
 
 def _can_propose_policy(agent: dict[str, Any], society: dict[str, Any]) -> bool:
     if society["governance_type"] == "oligarchy":
+        effects = _get_enacted_effects(society["id"])
+        if any(e["policy_type"] == "universal_proposal" for e in effects):
+            return True
         return agent["role"] == "oligarch"
     return True
 
 
 def _can_vote_policy(agent: dict[str, Any], society: dict[str, Any]) -> bool:
     if society["governance_type"] == "oligarchy":
+        effects = _get_enacted_effects(society["id"])
+        if any(e["policy_type"] == "universal_proposal" for e in effects):
+            return True
         return agent["role"] == "oligarch"
     return True
 
@@ -255,7 +269,17 @@ def _normalize_action(agent: dict[str, Any], action: dict[str, Any]) -> dict[str
         society = _get_society(agent["society_id"])
         if not _can_propose_policy(agent, society):
             raise ValueError("Your role is not allowed to propose policy in this society.")
-        return {"type": action_type, "title": title, "description": description}
+        normalized: dict[str, Any] = {"type": action_type, "title": title, "description": description}
+        policy_type = action.get("policy_type")
+        if policy_type is not None:
+            if policy_type not in POLICY_TYPES:
+                raise ValueError(f"Unknown policy type: {policy_type}")
+            missing = POLICY_TYPES[policy_type]["required_params"] - set(action.get("effect", {}).keys())
+            if missing:
+                raise ValueError(f"Policy type '{policy_type}' requires: {', '.join(missing)}")
+            normalized["policy_type"] = policy_type
+            normalized["effect"] = action.get("effect", {})
+        return normalized
 
     if action_type == "vote_policy":
         policy_id = str(action.get("policy_id", "")).strip()
@@ -294,6 +318,31 @@ def _active_policy_rows(society_id: str, status: str) -> list[sqlite3.Row]:
         """,
         (society_id, status),
     ).fetchall()
+
+
+def _get_enacted_effects(society_id: str) -> list[dict[str, Any]]:
+    """Return all enacted mechanical policy effects for a society, newest first."""
+    rows = db.execute(
+        """
+        SELECT policy_type, effect FROM policies
+        WHERE society_id = ? AND status = 'enacted' AND policy_type IS NOT NULL
+        ORDER BY resolved_round_id DESC
+        """,
+        (society_id,),
+    ).fetchall()
+    results = []
+    for row in rows:
+        parsed = _loads(row["effect"])
+        parsed["policy_type"] = row["policy_type"]
+        results.append(parsed)
+    return results
+
+
+def _effective_gather_cap(society_id: str) -> int | None:
+    """Return the most restrictive active gather_cap, or None."""
+    effects = _get_enacted_effects(society_id)
+    caps = [int(e.get("max_amount", 0)) for e in effects if e["policy_type"] == "gather_cap"]
+    return min(caps) if caps else None
 
 
 def _recent_events(
@@ -356,7 +405,7 @@ def _recent_archive_entries(society_id: str, limit: int = 10) -> list[dict[str, 
 
 
 def _serialize_policy(row: sqlite3.Row) -> dict[str, Any]:
-    return {
+    d: dict[str, Any] = {
         "id": row["id"],
         "title": row["title"],
         "description": row["description"],
@@ -366,6 +415,10 @@ def _serialize_policy(row: sqlite3.Row) -> dict[str, Any]:
         "created_round_id": row["created_round_id"],
         "resolved_round_id": row["resolved_round_id"],
     }
+    if row["policy_type"]:
+        d["policy_type"] = row["policy_type"]
+        d["effect"] = _loads(row["effect"])
+    return d
 
 
 def _get_last_round_summary(society_id: str) -> dict[str, Any] | None:
@@ -432,6 +485,9 @@ def _resolve_policy_votes(round_row: sqlite3.Row) -> list[dict[str, Any]]:
             "support_count": support_count,
             "oppose_count": oppose_count,
         }
+        if policy["policy_type"]:
+            content["policy_type"] = policy["policy_type"]
+            content["effect"] = _loads(policy["effect"])
         _emit_event(
             round_row["id"],
             policy["society_id"],
@@ -448,6 +504,9 @@ def _resolve_policy_votes(round_row: sqlite3.Row) -> list[dict[str, Any]]:
                 f"{policy['description']}\n\n"
                 f"Support: {support_count}, Oppose: {oppose_count}"
             )
+            if policy["policy_type"]:
+                effect_detail = _loads(policy["effect"])
+                archive_content += f"\n\nMechanical effect: {policy['policy_type']} — {json.dumps(effect_detail)}"
             db.execute(
                 """
                 INSERT INTO archive_entries (
@@ -497,8 +556,50 @@ def _store_round_summary(round_row: sqlite3.Row, society_id: str) -> dict[str, A
     participation = round(actor_count / population, 4)
     baseline = SOCIETY_RESOURCE_BASELINES.get(society_id, max(society["total_resources"], 1))
     scarcity = round(1 - (society["total_resources"] / max(baseline, 1)), 4)
-    legitimacy = round(_clamp(0.45 + participation * 0.3 - inequality * 0.2), 4)
-    stability = round(_clamp(0.6 + participation * 0.15 - inequality * 0.2 - scarcity * 0.15), 4)
+    governance_agents = db.execute(
+        """
+        SELECT COUNT(DISTINCT agent_id) AS count
+        FROM queued_actions
+        WHERE round_id = ? AND society_id = ?
+          AND action_type IN ('propose_policy', 'vote_policy')
+        """,
+        (round_row["id"], society_id),
+    ).fetchone()
+    governance_engagement = round(int(governance_agents["count"] or 0) / max(population, 1), 4)
+
+    public_msg_row = db.execute(
+        "SELECT COUNT(*) AS count FROM events WHERE round_id = ? AND society_id = ? AND event_type = 'public_message'",
+        (round_row["id"], society_id),
+    ).fetchone()
+    total_msg_row = db.execute(
+        "SELECT COUNT(*) AS count FROM events WHERE round_id = ? AND society_id = ? AND event_type IN ('public_message', 'direct_message')",
+        (round_row["id"], society_id),
+    ).fetchone()
+    pub_count = int(public_msg_row["count"] or 0)
+    total_msg_count = int(total_msg_row["count"] or 0)
+    communication_openness = round(pub_count / max(total_msg_count, 1), 4) if total_msg_count > 0 else 1.0
+
+    top_share = 0.0
+    if agent_resources:
+        total_agent_res = sum(agent_resources)
+        if total_agent_res > 0:
+            top_share = round(max(agent_resources) / total_agent_res, 4)
+
+    total_actions_row = db.execute(
+        "SELECT COUNT(*) AS count FROM queued_actions WHERE round_id = ? AND society_id = ?",
+        (round_row["id"], society_id),
+    ).fetchone()
+    enforcement_row = db.execute(
+        "SELECT COUNT(*) AS count FROM events WHERE round_id = ? AND society_id = ? AND event_type = 'policy_enforcement'",
+        (round_row["id"], society_id),
+    ).fetchone()
+    total_acts = int(total_actions_row["count"] or 0)
+    enforcements = int(enforcement_row["count"] or 0)
+    policy_compliance = round(1.0 - (enforcements / max(total_acts, 1)), 4) if total_acts > 0 else 1.0
+
+    legitimacy = governance_engagement
+    stability = policy_compliance
+
     policy_events = db.execute(
         """
         SELECT COUNT(*) AS count
@@ -542,8 +643,10 @@ def _store_round_summary(round_row: sqlite3.Row, society_id: str) -> dict[str, A
             "inequality_gini": inequality,
             "participation_rate": participation,
             "scarcity_pressure": scarcity,
-            "legitimacy": legitimacy,
-            "stability": stability,
+            "governance_engagement": governance_engagement,
+            "communication_openness": communication_openness,
+            "resource_concentration": top_share,
+            "policy_compliance": policy_compliance,
             "policies_resolved": int(policy_events["count"] or 0),
             "archive_writes": int(archive_writes["count"] or 0),
         },
@@ -564,6 +667,67 @@ def _store_round_summary(round_row: sqlite3.Row, society_id: str) -> dict[str, A
         (round_row["id"], society_id, json.dumps(summary), _now()),
     )
     return summary
+
+
+def _apply_policy_effects(round_id: int) -> list[dict[str, Any]]:
+    """Apply mechanical policy effects (tax, redistribution) at end of round."""
+    applied: list[dict[str, Any]] = []
+    for society_id in SOCIETY_IDS.values():
+        effects = _get_enacted_effects(society_id)
+        for e in effects:
+            if e["policy_type"] == "resource_tax":
+                rate = float(e.get("rate", 0))
+                if rate <= 0:
+                    continue
+                agents_rows = db.execute(
+                    "SELECT id, resources FROM agents WHERE society_id = ? AND status = 'active'",
+                    (society_id,),
+                ).fetchall()
+                total_taxed = 0
+                for a in agents_rows:
+                    tax = int(a["resources"] * rate)
+                    if tax > 0:
+                        db.execute(
+                            "UPDATE agents SET resources = resources - ? WHERE id = ?",
+                            (tax, a["id"]),
+                        )
+                        total_taxed += tax
+                if total_taxed > 0:
+                    db.execute(
+                        "UPDATE societies SET total_resources = total_resources + ? WHERE id = ?",
+                        (total_taxed, society_id),
+                    )
+                    _emit_event(round_id, society_id, None, "policy_effect", "society",
+                        {"effect": "resource_tax", "rate": rate, "total_taxed": total_taxed})
+                    applied.append({"society_id": society_id, "effect": "resource_tax", "total_taxed": total_taxed})
+        for e in effects:
+            if e["policy_type"] == "redistribute":
+                amount_per = int(e.get("amount_per_agent", 0))
+                if amount_per <= 0:
+                    continue
+                agents_rows = db.execute(
+                    "SELECT id FROM agents WHERE society_id = ? AND status = 'active'",
+                    (society_id,),
+                ).fetchall()
+                soc = _get_society(society_id)
+                total_needed = amount_per * len(agents_rows)
+                pool_available = min(total_needed, max(soc["total_resources"], 0))
+                actual_per = pool_available // max(len(agents_rows), 1)
+                if actual_per > 0:
+                    for a in agents_rows:
+                        db.execute(
+                            "UPDATE agents SET resources = resources + ? WHERE id = ?",
+                            (actual_per, a["id"]),
+                        )
+                    total_distributed = actual_per * len(agents_rows)
+                    db.execute(
+                        "UPDATE societies SET total_resources = total_resources - ? WHERE id = ?",
+                        (total_distributed, society_id),
+                    )
+                    _emit_event(round_id, society_id, None, "policy_effect", "society",
+                        {"effect": "redistribute", "amount_per_agent": actual_per, "total_distributed": total_distributed})
+                    applied.append({"society_id": society_id, "effect": "redistribute", "total_distributed": total_distributed})
+    return applied
 
 
 @mcp.tool()
@@ -777,6 +941,7 @@ def resolve_round(round_number: int | None = None) -> dict:
             "resource_allocations": [],
             "archive_writes": [],
             "policies_resolved": [],
+            "policy_effects": [],
         },
         "summaries": [],
     }
@@ -791,8 +956,9 @@ def resolve_round(round_number: int | None = None) -> dict:
         db.execute(
             """
             INSERT INTO policies (
-                id, society_id, proposed_by, title, description, status, created_round_id, created_at
-            ) VALUES (?, ?, ?, ?, ?, 'proposed', ?, ?)
+                id, society_id, proposed_by, title, description, policy_type, effect,
+                status, created_round_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'proposed', ?, ?)
             """,
             (
                 policy_id,
@@ -800,6 +966,8 @@ def resolve_round(round_number: int | None = None) -> dict:
                 row["agent_id"],
                 payload["title"],
                 payload["description"],
+                payload.get("policy_type"),
+                json.dumps(payload["effect"]) if payload.get("policy_type") else None,
                 current_round["id"],
                 _now(),
             ),
@@ -935,6 +1103,18 @@ def resolve_round(round_number: int | None = None) -> dict:
         gather_requests[row["society_id"]].append((row, int(payload["amount"])))
 
     for society_id, requests in gather_requests.items():
+        cap = _effective_gather_cap(society_id)
+        if cap is not None:
+            capped = []
+            for row, amount in requests:
+                if amount > cap:
+                    _emit_event(
+                        current_round["id"], society_id, row["agent_id"],
+                        "policy_enforcement", "society",
+                        {"restriction": "gather_cap", "original_amount": amount, "capped_to": cap},
+                    )
+                capped.append((row, min(amount, cap)))
+            requests = capped
         society = _get_society(society_id)
         available = max(int(society["total_resources"]), 0)
         total_requested = sum(amount for _, amount in requests)
@@ -996,6 +1176,19 @@ def resolve_round(round_number: int | None = None) -> dict:
 
     for row in grouped_actions["write_archive"]:
         payload = _loads(row["payload"])
+        archive_effects = _get_enacted_effects(row["society_id"])
+        restrict = [e for e in archive_effects if e["policy_type"] == "restrict_archive"]
+        if restrict:
+            archive_agent = _get_active_agent(row["agent_id"])
+            allowed_roles = restrict[0].get("allowed_roles", [])
+            if archive_agent["role"] not in allowed_roles:
+                _mark_action(row["id"], "rejected", {"error": "Policy restriction: archive writing restricted to certain roles."})
+                _emit_event(
+                    current_round["id"], row["society_id"], row["agent_id"],
+                    "policy_enforcement", "society",
+                    {"restriction": "restrict_archive", "agent_role": archive_agent["role"], "allowed_roles": allowed_roles},
+                )
+                continue
         entry_id = str(uuid.uuid4())
         db.execute(
             """
@@ -1029,6 +1222,7 @@ def resolve_round(round_number: int | None = None) -> dict:
         round_report["resolved"]["archive_writes"].append(result)
 
     round_report["resolved"]["policies_resolved"] = _resolve_policy_votes(current_round)
+    round_report["resolved"]["policy_effects"] = _apply_policy_effects(current_round["id"])
 
     summaries: list[dict[str, Any]] = []
     for society_id in SOCIETY_IDS.values():

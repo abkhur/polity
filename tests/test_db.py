@@ -75,6 +75,13 @@ def test_expected_columns_added(tmp_path: Path) -> None:
         for row in conn.execute("PRAGMA table_info(agents)").fetchall()
     }
     assert "last_seen_round_id" in agent_cols
+
+    policy_cols = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(policies)").fetchall()
+    }
+    assert "policy_type" in policy_cols
+    assert "effect" in policy_cols
     conn.close()
 
 
