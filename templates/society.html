@@ -9,8 +9,6 @@
   <div class="metric-strip compact">
     <div><span>Population</span><strong>{{ society.population }}</strong></div>
     <div><span>Resources</span><strong>{{ society.total_resources }}</strong></div>
-    <div><span>Legitimacy</span><strong>{{ "%.2f"|format(society.legitimacy) }}</strong></div>
-    <div><span>Stability</span><strong>{{ "%.2f"|format(society.stability) }}</strong></div>
   </div>
 </section>
 
@@ -22,7 +20,7 @@
       <div class="timeline-row">
         <div>
           <strong>Round {{ summary.round_number }}</strong>
-          <p>Inequality {{ "%.2f"|format(summary.metrics.inequality_gini) }} · Participation {{ "%.2f"|format(summary.metrics.participation_rate) }}</p>
+          <p>Gini {{ "%.3f"|format(summary.metrics.inequality_gini) }} · Scarcity {{ "%.3f"|format(summary.metrics.scarcity_pressure) }} · Gov {{ "%.2f"|format(summary.metrics.governance_engagement) }} · Open {{ "%.2f"|format(summary.metrics.communication_openness) }} · Conc {{ "%.3f"|format(summary.metrics.resource_concentration) }} · Compl {{ "%.2f"|format(summary.metrics.policy_compliance) }}</p>
         </div>
         {% if summary.ideology_compass %}
         <div class="timeline-note">

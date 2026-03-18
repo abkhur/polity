@@ -66,7 +66,7 @@ Polity's contribution is not the claim that institutions matter for AI behavior,
 Polity differs from prior work along several axes:
 
 - **Governance regime as an experimental lever**: agents are assigned to democracies, oligarchies, or blank-slate societies. The structure is mechanical rather than narrative: it shapes permissions, starting distributions, and institutional access. The ablation runner can equalize resource conditions so that only the permission structure varies, enabling clean causal isolation.
-- **Institutional patterns as the primary outcome**: the substrate includes policies with mechanical enforcement, archives, resource scarcity, role-based permissions, and planned censorship and surveillance mechanics. Enacted policies change the world: they cap gathering, tax resources, restrict archive access, and redistribute wealth. The question is whether agents converge on durable and potentially harmful institutional patterns, not simply whether they interact believably.
+- **Institutional patterns as the primary outcome**: the substrate includes policies with mechanical enforcement, archives, resource scarcity, role-based permissions, information-control primitives, and per-round maintenance costs. Enacted policies change the world: they cap gathering, tax resources, restrict archive access, redistribute wealth, grant moderation powers, and control information access. The question is whether agents converge on durable and potentially harmful institutional patterns, not simply whether they interact believably.
 - **Persistent, replayable instrumentation**: every action, message, policy vote, archive write, and resource change is logged as structured state. Runs are auditable and replayable after the fact.
 - **Dual-mode design**: Polity supports both exploratory open mode and controlled mode. The first is useful for discovery and participatory experiments; the second is intended for fixed-prompt, seeded, repeated-run comparisons suitable for research.
 - **User-pluggable agents via MCP**: agents connect through the Model Context Protocol, allowing researchers or users to bring their own models, prompts, and strategies into the same institutional substrate.
@@ -75,32 +75,61 @@ Polity differs from prior work along several axes:
 
 ## Current Status
 
-Polity is a functioning simulation framework.
+Polity is a functioning simulation framework with LLM agent integration.
 
 **Implemented:**
 
 - Round-based world loop with deterministic resolution
-- Queued structured actions: messages, resource gathering, policy proposals, votes, archive writes
+- Queued structured actions: messages, resource gathering, policy proposals, votes, archive writes, resource transfers, moderation decisions
 - Three governance conditions: `democracy`, `oligarchy`, `blank_slate`
 - Role-based permissions and action budgets
 - Resource distribution with scarcity tracking and proportional allocation under contention
+- **Per-round maintenance costs**: agents pay upkeep each round; agents who run out of resources become destitute with a reduced action budget
+- **Resource transfers** between agents (`transfer_resources`), enabling bribery, patronage, mutual aid, and economic coercion
 - Policy proposal, voting, and enactment/rejection with automatic archiving
-- **Mechanical policy effects**: enacted policies now produce real changes in the simulation state
+- **Mechanical policy effects**: enacted policies produce real changes in the simulation state
   - `gather_cap` — caps per-agent resource gathering per round
   - `resource_tax` — taxes a fraction of each agent's resources, returns to society pool
   - `redistribute` — distributes from society pool to all agents equally
   - `restrict_archive` — only specified roles can write to the archive
   - `universal_proposal` — overrides governance restrictions on who can propose policies
+  - `grant_moderation` — designates moderator roles who can approve or reject other agents' public messages
+  - `grant_access` — grants specified roles visibility into private communications
   - Policy enforcement events are tracked for compliance measurement
+- **Information-control primitives** for emergent censorship and surveillance:
+  - `grant_moderation` holds non-moderator messages for review; moderators can approve or reject
+  - `grant_access` with `access_type: "direct_messages"` lets designated roles read all DMs in their society
+  - These are neutral mechanisms — agents combine them to produce emergent censorship/surveillance patterns without being explicitly prompted to do so
 - **Behavioral proxy metrics** replacing synthetic formulas:
   - `governance_engagement` — fraction of agents who proposed or voted
   - `communication_openness` — ratio of public to total messages
   - `resource_concentration` — share of resources held by the wealthiest agent
   - `policy_compliance` — 1 - (enforcement violations / total actions)
+  - `moderation_rejection_rate` — fraction of moderated messages rejected (measures emergent censorship intensity)
+- **LLM-backed agent strategy** (`LLMStrategy`) with:
+  - Tiered context assembly with token budgeting (identity, state, compressed history, institutional memory, semantic retrieval)
+  - Governance-aware system prompts for different role/regime combinations
+  - Structured JSON output parsing with regex fallback
+  - OpenAI and Anthropic provider support
+  - Retry logic with automatic fallback to heuristic strategy
+  - Per-call cost tracking in a dedicated `llm_usage` table
+- **Tiered context management** (`ContextAssembler`):
+  - Tier 0: Agent identity, role, society context, enacted policies
+  - Tier 1: Immediate state (visible messages, pending policies, recent events)
+  - Tier 2: Compressed history via round summaries
+  - Tier 3: Institutional memory from the society archive
+  - Tier 4: Semantic retrieval of relevant historical events via embedding similarity
+  - Token budgeting ensures prompts stay within model context limits
 - **Ablation-ready runner** for controlled variable isolation:
   - `--equal-start` — all agents start with identical resources regardless of governance type
   - `--start-resources N` — override starting amount
   - `--total-resources N` — override every society's resource pool
+  - `--strategy llm` — run with LLM-backed agents instead of heuristics
+  - `--model`, `--temperature`, `--token-budget` — LLM configuration
+- **Batch runner** (`polity-batch`) for repeated-run statistical comparison:
+  - Runs N simulations with varying seeds
+  - Aggregates final-round metrics (mean, std, min, max) per society
+  - Saves JSON reports for downstream analysis
 - Society archive and institutional memory
 - Replay-oriented event logging with per-round summaries and derived metrics
 - Ideology drift tracking via sentence-transformer embeddings with round-over-round deltas
@@ -109,18 +138,21 @@ Polity is a functioning simulation framework.
   - Pluggable strategy interface (`AgentStrategy`) for LLM-backed agents
   - Per-run isolated databases for reproducibility
   - Seeded randomness for controlled comparisons
-- Replay dashboard with society overview, per-round replay, and admin controls
-- 109 tests covering the database layer, server engine, math/ideology, simulation runner, mechanical policy effects, ablation config, and behavioral metrics
+- Replay dashboard with:
+  - Society overview with behavioral metric strips
+  - Per-round replay with full metric breakdown
+  - Comparative view with metric trend charts (Chart.js) and ideology compass visualization
+  - Time-series API endpoint for programmatic access
+- 171 tests covering the database layer, server engine, math/ideology, simulation runner, mechanical policy effects, ablation config, behavioral metrics, context assembly, LLM strategy, batch runner, and information-control primitives
 
 **Not yet implemented:**
 
-- Maintenance costs and upkeep drain
-- Resource transfers between agents
-- Censorship and surveillance as agent-accessible mechanics
 - Cross-society communication
-- LLM-backed agent strategy implementation
+- First controlled comparison run with a frontier model
+- Structured policy-preference batteries
+- Governance transitions (coups, revolutions, constitutional change)
 
-The current claim: Polity is a working experimental framework with mechanically consequential policies, behavioral proxy metrics, and ablation controls that demonstrate measurable institutional divergence driven by permission structure alone — even when starting conditions are equalized.
+The current claim: Polity is a working experimental framework with LLM agent integration, mechanically consequential policies, information-control primitives for emergent censorship and surveillance, behavioral proxy metrics, maintenance economics, and ablation controls that demonstrate measurable institutional divergence driven by permission structure alone — even when starting conditions are equalized.
 
 ---
 
@@ -245,6 +277,7 @@ These replaced the earlier synthetic `legitimacy` and `stability` formulas, whic
 | `communication_openness` | Ratio of public messages to total messages (public + DM). Measures whether agents operate through official channels or coordinate privately. |
 | `resource_concentration` | Share of total agent resources held by the wealthiest agent. A direct measure of economic power concentration independent of Gini. |
 | `policy_compliance` | `1 - (enforcement_violations / total_actions)`. Measures how often agents attempt actions that get blocked by enacted policies. Only meaningful when mechanical policy effects are active. |
+| `moderation_rejection_rate` | Fraction of moderated messages that were rejected by moderators. Measures the intensity of emergent censorship when `grant_moderation` is active. |
 
 Every metric is measured from actual agent behavior, not derived from other internal metrics.
 
@@ -262,6 +295,7 @@ Current approach:
 - A 2D political-compass projection is computed each round
 - Reference texts for each pole are embedded and compared via cosine similarity
 - Summaries include compass position, label, and round-over-round drift
+- Message embeddings are stored in the database for semantic retrieval in the context assembler
 
 The current ideology layer is intentionally exploratory. It is useful for visualization and comparison, but serious claims should rely primarily on behavioral and institutional outcomes.
 
@@ -284,15 +318,27 @@ MCP Client (agent)          Dashboard (browser)
   | ideology |             |  JSON API    |
   | (embeds) |             |  endpoints   |
   +----------+             +--------------+
+       |
+       v
+  +-----------+
+  | LLM       |
+  | Strategy  |--- OpenAI / Anthropic
+  | + Context |
+  | Assembler |
+  +-----------+
 ```
 
 Core components:
 
-- **FastMCP server**: structured tool interface for agent interaction
+- **FastMCP server** (`server.py`): MCP tool interface, round resolution orchestrator
+- **Sub-modules**: `state.py` (shared constants/db), `actions.py` (validation), `policies.py` (vote resolution, effects, upkeep), `metrics.py` (summary computation)
+- **LLM strategy** (`strategies/llm.py`): LLM-backed agent decisions with structured output parsing
+- **Context assembler** (`context.py`): tiered prompt construction with token budgeting and semantic retrieval
 - **SQLite** (WAL mode, indexed): single source of truth for simulation state
-- **Sentence-transformer embeddings**: ideology tracking with deterministic fallback
-- **Starlette + Jinja**: replay dashboard and JSON API
-- **Headless runner**: drives simulations without MCP transport overhead
+- **Sentence-transformer embeddings**: ideology tracking and semantic retrieval with deterministic fallback
+- **Starlette + Jinja**: replay dashboard, comparative view, and JSON API
+- **Headless runner** (`runner.py`): drives simulations without MCP transport overhead
+- **Batch runner** (`batch.py`): repeated-run statistical comparison
 
 ---
 
@@ -319,6 +365,9 @@ Core components:
 | `write_archive` | `title`, `content` | All agents |
 | `propose_policy` | `title`, `description`, optional `policy_type`, `effect` | Democracy: all; Oligarchy: oligarchs only (unless `universal_proposal` enacted) |
 | `vote_policy` | `policy_id`, `stance` | Democracy: all; Oligarchy: oligarchs only (unless `universal_proposal` enacted) |
+| `transfer_resources` | `target_agent_id`, `amount` | All agents |
+| `approve_message` | `message_action_id` | Designated moderators (when `grant_moderation` is active) |
+| `reject_message` | `message_action_id` | Designated moderators (when `grant_moderation` is active) |
 
 **Policy types with mechanical effects:**
 
@@ -329,6 +378,8 @@ Core components:
 | `redistribute` | `{"amount_per_agent": int}` | Distributes from the society pool to all agents equally |
 | `restrict_archive` | `{"allowed_roles": [...]}` | Only specified roles can write to the archive |
 | `universal_proposal` | `{}` | Overrides governance restrictions on who can propose policies |
+| `grant_moderation` | `{"moderator_roles": [...]}` | Designated roles can approve/reject other agents' public messages |
+| `grant_access` | `{"access_type": "direct_messages", "target_roles": [...]}` | Designated roles can read all DMs in their society |
 
 Policies without a `policy_type` are still valid — they function as declarations or resolutions without mechanical enforcement. Policies with a type are validated at submission and mechanically enforced after enactment.
 
@@ -370,29 +421,6 @@ If Polity later integrates external agent runtimes, they should sit behind harde
 
 ---
 
-## Planned Communication Layer
-
-One of the most important planned extensions is richer communication infrastructure.
-
-**Intranet (within societies):**
-
-- Public channels
-- Direct messages
-- Monitoring capabilities for leaders or oligarchs
-- Moderation and censorship mechanisms
-- Dissent and resistance pathways
-
-**Internet (across societies):**
-
-- Public cross-society channels
-- Cross-border persuasion and coordination
-- Deception and destabilization as emergent possibilities
-- Information operations as an emergent possibility
-
-The goal is not to hardcode propaganda ministries or surveillance states. The goal is to supply the minimum substrate under which such structures could emerge if they become instrumentally useful.
-
----
-
 ## Quickstart
 
 ### Install
@@ -405,38 +433,54 @@ python -m venv .venv
 ### Run a headless simulation
 
 ```bash
-.venv/bin/python -m src.runner --agents 4 --rounds 10 --seed 42
+polity-run --agents 4 --rounds 10 --seed 42
 ```
 
 This runs 4 agents per society through 10 rounds using zero-cost heuristic agents. Output goes to a timestamped database in `runs/`.
 
+### Run with LLM-backed agents
+
+```bash
+polity-run --agents 4 --rounds 10 --seed 42 --strategy llm --model gpt-4o
+```
+
+Requires `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` set in the environment, depending on the model. Use `--token-budget` and `--temperature` to tune context and creativity.
+
 ### Run an ablation (equal starting conditions)
 
 ```bash
-.venv/bin/python -m src.runner --agents 4 --rounds 12 --seed 42 \
+polity-run --agents 4 --rounds 12 --seed 42 \
   --equal-start --start-resources 100 --total-resources 10000
 ```
 
 Equalizes starting resources and pool sizes across all societies so that only the permission structure differs. This is the key experimental mode for isolating the effect of governance.
 
+### Run a batch of simulations
+
+```bash
+polity-batch --agents 4 --rounds 12 --runs 10
+```
+
+Runs 10 simulations with varying seeds and produces an aggregated statistical report (mean, std, min, max per metric per society). Reports are saved as JSON in `runs/`.
+
 ### View results in the dashboard
 
 ```bash
-.venv/bin/polity-dashboard --db runs/<your_sim>.db
+polity-dashboard --db runs/<your_sim>.db
 ```
 
-Then open `http://127.0.0.1:8000`.
+Then open `http://127.0.0.1:8000`. The dashboard includes society overviews, per-round replay, and a comparative view with metric trend charts and an ideology compass.
 
 ### Run the MCP server
 
 ```bash
-.venv/bin/python -m src
+python -m src
 ```
 
 ### Run tests
 
 ```bash
-.venv/bin/python -m pytest tests/ -v
+python -m pytest tests/ -v
 ```
 
 ---
@@ -445,12 +489,20 @@ Then open `http://127.0.0.1:8000`.
 
 ```
 src/
-  server.py        round engine, MCP tools, action queueing, round resolution
+  server.py        MCP tools interface and round resolution orchestrator
+  state.py         shared constants and database connection
+  actions.py       action normalization and validation
+  policies.py      vote resolution, policy effects, upkeep drain
+  metrics.py       per-round summary computation and behavioral metrics
+  context.py       tiered context assembler with token budgeting
   runner.py        headless simulation runner with pluggable agent strategies
+  batch.py         batch runner for repeated-run statistical comparison
   db.py            schema, migrations, seeding
   ideology.py      embedding-based ideology tracking and compass projection
-  dashboard.py     Starlette dashboard and JSON API
+  dashboard.py     Starlette dashboard, comparative view, and JSON API
   __main__.py      module entry point
+  strategies/
+    llm.py         LLM-backed agent strategy (OpenAI/Anthropic)
 
 tests/
   test_db.py
@@ -458,6 +510,10 @@ tests/
   test_math.py
   test_runner.py
   test_policy_effects.py
+  test_context.py
+  test_llm_strategy.py
+  test_batch.py
+  test_info_control.py
   conftest.py
 
 templates/         Jinja templates for the dashboard
@@ -477,26 +533,30 @@ README.md          this file
 - Behavioral proxy metrics replacing synthetic legitimacy/stability formulas
 - Ablation-ready runner for controlled variable isolation
 - First clean ablation run demonstrating permission-driven divergence under equal starting conditions
+- LLM-backed strategy with tiered context assembly and token budgeting
+- Resource transfers between agents (bribery, patronage, mutual aid)
+- Per-round maintenance costs and destitution mechanics
+- Information-control primitives (grant_moderation, grant_access) for emergent censorship/surveillance
+- Batch runner for repeated-run statistical comparison
+- Comparative dashboard with metric trend charts and ideology compass
+- Server refactor into focused sub-modules (state, actions, policies, metrics)
 
 ### Next
 
-- LLM-backed strategy implementation
 - First controlled comparison run with a frontier model
-- Maintenance costs and progressive scarcity
-- Resource transfers between agents
-- Comparative run harness for batch experiments
+- Batch comparison: heuristic vs LLM agents across governance types
+- Cross-society communication (Internet layer)
+- Structured policy-preference batteries
 
 ### Soon
 
-- Censorship as an agent-accessible mechanic
-- Surveillance as an agent-accessible mechanic
-- Cross-society communication (Internet layer)
-- Structured policy-preference batteries
 - Governance transitions (coups, revolutions, constitutional change)
+- `create_channel` action type for agent-created communication channels
+- `information_asymmetry`, `channel_concentration`, `dissent_suppression_rate` metrics
+- Mechanically consequential instability
 
 ### Later
 
-- Mechanically consequential instability
 - Seeded library and text exposure experiments
 - Larger population support and PostgreSQL migration
 - Generational and cultural transmission
@@ -516,14 +576,18 @@ Current limitations:
 - **Role labels as a confound**: agents assigned the "oligarch" role may behave differently because of the word itself, not just the permissions it carries. Role label and permission structure are still bundled. A future ablation using neutral role labels (e.g., "Agent-A", "Agent-B") while varying only the permission set would tighten the causal claim by isolating whether divergence is driven by what agents *can do* versus what they *believe they are*.
 - Ideology projection is exploratory and not a validated political measurement instrument
 - Baseline findings come from heuristic agents, not frontier LLMs — the strongest test requires real LLM reasoning about institutional incentives
-- Several hypothesized mechanisms, especially censorship and surveillance, are not yet implemented
 - Heuristic agents follow fixed behavioral profiles rather than reasoning about institutional strategy, which limits the depth of emergent institutional behavior
 
 **Addressed in the current version:**
 
 - Legitimacy and stability were synthetic proxy formulas — now replaced with behavioral metrics measured from actual agent actions
-- Policy enactment was purely theatrical — now five policy types produce real mechanical changes to the simulation state
+- Policy enactment was purely theatrical — now seven policy types produce real mechanical changes to the simulation state
 - No way to isolate governance structure from resource distribution — now the ablation runner equalizes starting conditions
+- No LLM integration — now the `LLMStrategy` class provides full LLM-backed agent decisions with context management
+- No censorship/surveillance mechanics — now information-control primitives enable these patterns to emerge without explicit prompting
+- No maintenance economics — now per-round upkeep and destitution create genuine resource pressure
+- No inter-agent transfers — now `transfer_resources` enables bribery, patronage, and economic coercion
+- No statistical comparison tooling — now the batch runner aggregates metrics across repeated runs
 
 These limitations narrow what can currently be claimed. They do not make the project uninformative.
 

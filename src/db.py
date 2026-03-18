@@ -152,6 +152,12 @@ EXPECTED_COLUMNS = {
         "policy_type": "TEXT",
         "effect": "TEXT",
     },
+    "events": {
+        "embedding": "BLOB",
+    },
+    "queued_actions": {
+        "moderation_status": "TEXT DEFAULT NULL",
+    },
 }
 
 

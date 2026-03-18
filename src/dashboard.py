@@ -32,7 +32,7 @@ templates.env.filters["to_pretty_json"] = _format_json
 
 def _ensure_runtime(db_path: str | None = None) -> None:
     if server.db is None:
-        server.db = init_db(Path(db_path) if db_path else DEFAULT_DB_PATH)
+        server.set_db(init_db(Path(db_path) if db_path else DEFAULT_DB_PATH))
 
 
 def _current_round() -> dict[str, Any]:
@@ -358,12 +358,62 @@ async def api_admin_state(request: Request) -> JSONResponse:
     return JSONResponse(_admin_state())
 
 
+def _metrics_timeseries() -> dict[str, Any]:
+    """Return per-society metric time-series for charting."""
+    rows = server.db.execute(
+        """
+        SELECT society_id, summary
+        FROM round_summaries
+        ORDER BY id ASC
+        """
+    ).fetchall()
+
+    series: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        sid = row["society_id"]
+        s = json.loads(row["summary"])
+        m = s.get("metrics", {})
+        compass = s.get("ideology_compass", {})
+        point = {
+            "round": s["round_number"],
+            "inequality_gini": m.get("inequality_gini", 0),
+            "scarcity_pressure": m.get("scarcity_pressure", 0),
+            "governance_engagement": m.get("governance_engagement", 0),
+            "communication_openness": m.get("communication_openness", 0),
+            "resource_concentration": m.get("resource_concentration", 0),
+            "policy_compliance": m.get("policy_compliance", 0),
+            "participation_rate": m.get("participation_rate", 0),
+            "ideology_x": compass.get("x", 0),
+            "ideology_y": compass.get("y", 0),
+            "ideology_name": compass.get("ideology_name", ""),
+        }
+        series.setdefault(sid, []).append(point)
+
+    return {"series": series}
+
+
+async def api_timeseries(request: Request) -> JSONResponse:
+    _ensure_runtime(request.app.state.db_path)
+    return JSONResponse(_metrics_timeseries())
+
+
+async def compare_page(request: Request) -> HTMLResponse:
+    _ensure_runtime(request.app.state.db_path)
+    context = {
+        "request": request,
+        "current_round": _current_round(),
+        "societies": _society_cards(),
+    }
+    return templates.TemplateResponse(request, "compare.html", context)
+
+
 def create_dashboard_app(db_path: str | None = None) -> Starlette:
-    server.db = init_db(Path(db_path) if db_path else DEFAULT_DB_PATH)
+    server.set_db(init_db(Path(db_path) if db_path else DEFAULT_DB_PATH))
     app = Starlette(
         debug=True,
         routes=[
             Route("/", overview_page),
+            Route("/compare", compare_page),
             Route("/societies/{society_id:str}", society_page),
             Route("/rounds/{round_number:int}", round_page),
             Route("/admin", admin_page),
@@ -372,6 +422,7 @@ def create_dashboard_app(db_path: str | None = None) -> Starlette:
             Route("/api/societies/{society_id:str}", api_society),
             Route("/api/rounds/{round_number:int}", api_round),
             Route("/api/admin/state", api_admin_state),
+            Route("/api/timeseries", api_timeseries),
         ],
     )
     app.state.db_path = db_path

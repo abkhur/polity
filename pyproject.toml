@@ -15,6 +15,7 @@ dependencies = [
 polity-server = "src.server:main"
 polity-dashboard = "src.dashboard:main"
 polity-run = "src.runner:main"
+polity-batch = "src.batch:main"
 
 [project.optional-dependencies]
 dev = [

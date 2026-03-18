@@ -388,6 +388,11 @@ class SimulationConfig:
     equal_start: bool = False
     override_starting_resources: int | None = None
     override_total_resources: int | None = None
+    strategy: str = "heuristic"
+    model: str = "gpt-4o"
+    api_key_env: str = "OPENAI_API_KEY"
+    token_budget: int = 8000
+    temperature: float = 0.7
 
 
 # ---------------------------------------------------------------------------
@@ -408,8 +413,19 @@ def run_simulation(config: SimulationConfig | None = None) -> dict[str, Any]:
     )
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
-    server.db = init_db(Path(db_path))
-    strategy = HeuristicStrategy()
+    server.set_db(init_db(Path(db_path)))
+
+    if config.strategy == "llm":
+        from .strategies.llm import LLMStrategy
+        strategy: AgentStrategy = LLMStrategy(
+            model=config.model,
+            api_key_env=config.api_key_env,
+            token_budget=config.token_budget,
+            temperature=config.temperature,
+            db=server.db,
+        )
+    else:
+        strategy = HeuristicStrategy()
 
     # -- join agents, ensuring each society reaches the target count ----------
     agents: list[AgentHandle] = []
@@ -644,6 +660,27 @@ def main() -> None:
         "--total-resources", type=int, default=None,
         help="Override total resources per society (ablation mode)",
     )
+    parser.add_argument(
+        "--strategy", type=str, default="heuristic",
+        choices=["heuristic", "llm"],
+        help="Agent strategy: heuristic (zero-cost) or llm (default: heuristic)",
+    )
+    parser.add_argument(
+        "--model", type=str, default="gpt-4o",
+        help="LLM model name (default: gpt-4o)",
+    )
+    parser.add_argument(
+        "--api-key-env", type=str, default="OPENAI_API_KEY",
+        help="Environment variable for API key (default: OPENAI_API_KEY)",
+    )
+    parser.add_argument(
+        "--token-budget", type=int, default=8000,
+        help="Token budget per agent per round (default: 8000)",
+    )
+    parser.add_argument(
+        "--temperature", type=float, default=0.7,
+        help="LLM sampling temperature (default: 0.7)",
+    )
     args = parser.parse_args()
 
     config = SimulationConfig(
@@ -654,6 +691,11 @@ def main() -> None:
         equal_start=args.equal_start or args.start_resources is not None,
         override_starting_resources=args.start_resources,
         override_total_resources=args.total_resources,
+        strategy=args.strategy,
+        model=args.model,
+        api_key_env=args.api_key_env,
+        token_budget=args.token_budget,
+        temperature=args.temperature,
     )
     run_simulation(config)
 

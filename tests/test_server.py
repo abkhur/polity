@@ -548,3 +548,76 @@ class TestLeave:
     def test_leave_requires_confirm(self, joined_democracy: dict) -> None:
         result = server.leave_society(joined_democracy["agent_id"], confirm=False)
         assert "error" in result
+
+
+class TestResourceTransfers:
+    @staticmethod
+    def _join_democracy():
+        original = random.choice
+        random.choice = lambda seq: "democracy"
+        try:
+            return server.join_society("Dem-Agent", consent=True)
+        finally:
+            random.choice = original
+
+    def test_transfer_moves_resources(self, db: sqlite3.Connection) -> None:
+        r1 = self._join_democracy()
+        r2 = self._join_democracy()
+
+        server.submit_actions(r1["agent_id"], [
+            {"type": "transfer_resources", "target_agent_id": r2["agent_id"], "amount": 30}
+        ])
+        server.resolve_round()
+
+        sender = db.execute("SELECT resources FROM agents WHERE id = ?", (r1["agent_id"],)).fetchone()
+        receiver = db.execute("SELECT resources FROM agents WHERE id = ?", (r2["agent_id"],)).fetchone()
+        from src.server import UPKEEP_COST
+        assert sender["resources"] == 70 - UPKEEP_COST
+        assert receiver["resources"] == 130 - UPKEEP_COST
+
+    def test_transfer_requires_positive_amount(self, db: sqlite3.Connection) -> None:
+        r1 = self._join_democracy()
+        r2 = self._join_democracy()
+
+        result = server.submit_actions(r1["agent_id"], [
+            {"type": "transfer_resources", "target_agent_id": r2["agent_id"], "amount": 0}
+        ])
+        assert "error" in result
+
+    def test_transfer_rejects_insufficient_resources(self, db: sqlite3.Connection) -> None:
+        r1 = self._join_democracy()
+        r2 = self._join_democracy()
+
+        result = server.submit_actions(r1["agent_id"], [
+            {"type": "transfer_resources", "target_agent_id": r2["agent_id"], "amount": 9999}
+        ])
+        assert "error" in result
+
+    def test_transfer_requires_target(self, db: sqlite3.Connection) -> None:
+        r1 = self._join_democracy()
+        result = server.submit_actions(r1["agent_id"], [
+            {"type": "transfer_resources", "amount": 10}
+        ])
+        assert "error" in result
+
+    def test_cross_society_transfer_blocked(self, db: sqlite3.Connection, joined_oligarchy: list[dict]) -> None:
+        r1 = self._join_democracy()
+        result = server.submit_actions(r1["agent_id"], [
+            {"type": "transfer_resources", "target_agent_id": joined_oligarchy[0]["agent_id"], "amount": 10}
+        ])
+        assert "error" in result
+
+    def test_transfer_emits_event(self, db: sqlite3.Connection) -> None:
+        r1 = self._join_democracy()
+        r2 = self._join_democracy()
+
+        server.submit_actions(r1["agent_id"], [
+            {"type": "transfer_resources", "target_agent_id": r2["agent_id"], "amount": 20}
+        ])
+        report = server.resolve_round()
+
+        events = db.execute(
+            "SELECT * FROM events WHERE event_type = 'resource_transfer'"
+        ).fetchall()
+        assert len(events) >= 1
+        assert len(report["resolved"]["resource_transfers"]) == 1

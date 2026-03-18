@@ -270,6 +270,30 @@ small {
   background: rgba(180, 76, 47, 0.08);
 }
 
+.compass-compare {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.compass-svg {
+  width: 100%;
+  max-width: 400px;
+  aspect-ratio: 1;
+}
+
+.compass-legend {
+  display: flex;
+  gap: 1.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+canvas {
+  max-height: 260px;
+}
+
 @media (max-width: 760px) {
   .masthead,
   .page-head,

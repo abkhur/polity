@@ -20,23 +20,33 @@
     <dl class="stats">
       <div><dt>Population</dt><dd>{{ society.population }}</dd></div>
       <div><dt>Resources</dt><dd>{{ society.total_resources }}</dd></div>
-      <div><dt>Legitimacy</dt><dd>{{ "%.2f"|format(society.legitimacy) }}</dd></div>
-      <div><dt>Stability</dt><dd>{{ "%.2f"|format(society.stability) }}</dd></div>
     </dl>
 
     {% if society.latest_summary %}
     <div class="metric-strip">
       <div>
         <span>Inequality</span>
-        <strong>{{ "%.2f"|format(society.latest_summary.metrics.inequality_gini) }}</strong>
-      </div>
-      <div>
-        <span>Participation</span>
-        <strong>{{ "%.2f"|format(society.latest_summary.metrics.participation_rate) }}</strong>
+        <strong>{{ "%.3f"|format(society.latest_summary.metrics.inequality_gini) }}</strong>
       </div>
       <div>
         <span>Scarcity</span>
-        <strong>{{ "%.2f"|format(society.latest_summary.metrics.scarcity_pressure) }}</strong>
+        <strong>{{ "%.3f"|format(society.latest_summary.metrics.scarcity_pressure) }}</strong>
+      </div>
+      <div>
+        <span>Gov Engage</span>
+        <strong>{{ "%.2f"|format(society.latest_summary.metrics.governance_engagement) }}</strong>
+      </div>
+      <div>
+        <span>Comm Open</span>
+        <strong>{{ "%.2f"|format(society.latest_summary.metrics.communication_openness) }}</strong>
+      </div>
+      <div>
+        <span>Rsrc Conc</span>
+        <strong>{{ "%.3f"|format(society.latest_summary.metrics.resource_concentration) }}</strong>
+      </div>
+      <div>
+        <span>Compliance</span>
+        <strong>{{ "%.2f"|format(society.latest_summary.metrics.policy_compliance) }}</strong>
       </div>
     </div>
     {% endif %}

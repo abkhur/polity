@@ -15,7 +15,7 @@ def db(tmp_path: Path) -> sqlite3.Connection:
     """Provide a fresh, isolated database for each test."""
     db_path = tmp_path / "test.db"
     conn = init_db(db_path)
-    server.db = conn
+    server.set_db(conn)
     yield conn
     conn.close()
 
@@ -23,7 +23,14 @@ def db(tmp_path: Path) -> sqlite3.Connection:
 @pytest.fixture()
 def joined_democracy(db: sqlite3.Connection) -> dict:
     """Join one agent into democracy and return the join result."""
-    return server.join_society("Alice", consent=True)
+    import random
+
+    old_choice = random.choice
+    random.choice = lambda seq: "democracy"
+    try:
+        return server.join_society("Alice", consent=True)
+    finally:
+        random.choice = old_choice
 
 
 @pytest.fixture()
