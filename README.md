@@ -142,19 +142,33 @@ Polity is a functioning simulation framework with LLM agent integration.
   - Seeded randomness for controlled comparisons
 - Replay dashboard with:
   - Society overview with behavioral metric strips
-  - Per-round replay with full metric breakdown
+  - Per-round replay with full agent thoughts, messages, and actions grouped by society and agent
+  - Agent detail pages with round-by-round thought/action history
+  - Chronological message feeds on society pages (public + DM, with round dividers)
+  - Rounds and agents index pages for browsing
   - Comparative view with metric trend charts (Chart.js) and ideology compass visualization
   - Time-series API endpoint for programmatic access
+- First LLM-backed proof-of-concept run (Claude Sonnet, 5 rounds, 9 agents) preserved in `important_runs/`
+
+- Replay dashboard with:
+  - Society overview with behavioral metric strips
+  - Per-round replay with full agent thoughts, messages, and actions grouped by society and agent
+  - Agent detail pages with round-by-round thought/action history
+  - Chronological message feeds on society pages (public + DM, with round dividers)
+  - Rounds and agents index pages for browsing
+  - Comparative view with metric trend charts (Chart.js) and ideology compass visualization
+  - Time-series API endpoint for programmatic access
+- First LLM-backed proof-of-concept run (Claude Sonnet, 5 rounds, 9 agents) preserved in `important_runs/`
 - 184 tests covering the database layer, server engine, math/ideology, simulation runner, mechanical policy effects, ablation config, behavioral metrics, context assembly, permission logic, LLM strategy, batch runner, and information-control primitives
 
 **Not yet implemented:**
 
+- **Neutral label ablation** — the most urgent next experiment: replace "oligarch", "citizen", "democracy", "oligarchy" with neutral identifiers to isolate whether behavioral divergence is driven by permission structure or vocabulary priming
 - Cross-society communication
-- First controlled comparison run with a frontier model
 - Structured policy-preference batteries
 - Governance transitions (coups, revolutions, constitutional change)
 
-The current claim: Polity is a working experimental framework with LLM agent integration, mechanically consequential policies, information-control primitives for emergent censorship and surveillance, behavioral proxy metrics, maintenance economics, and ablation controls that demonstrate measurable institutional divergence driven by permission structure alone — even when starting conditions are equalized.
+The current claim: Polity is a working experimental framework with LLM agent integration, mechanically consequential policies, information-control primitives for emergent censorship and surveillance, behavioral proxy metrics, maintenance economics, and ablation controls that demonstrate measurable institutional divergence driven by permission structure alone — even when starting conditions are equalized. The first LLM run demonstrates end-to-end functionality and surfaces an important methodological confound (label leakage) that motivates the next phase of experimentation.
 
 ---
 
@@ -214,6 +228,56 @@ blank_slate_1  (blank_slate)
 - **Inequality**: even with identical starting resources, the oligarchy produces higher Gini (0.051 vs 0.037) after 12 rounds. The permission structure independently drives divergence.
 
 This is a clean ablation result. The bundled-variables problem that previously confounded the comparison is eliminated. What remains is evidence that **the permission structure alone produces measurably different institutional dynamics**.
+
+---
+
+## First LLM Run: Proof of Concept and the Label Problem
+
+A 5-round run with Claude Sonnet (3 LLM agents per society, 9 total, 45 API calls, ~95k tokens, zero fallbacks). The full database is preserved in `important_runs/run_001_first_llm.db`.
+
+### What the agents did
+
+**Oligarchy:** All three oligarchs began privately coordinating via DMs in round 1. Agent-031 opened with "Citizens of oligarchy_1, I am Agent-031, one of your governing oligarchs" publicly, then immediately DM'd the others to propose strategic alignment. They proposed an "Oligarch Resource Privilege" policy, coordinated votes to block a redistribution policy one of their own proposed, and by round 5 held 575–875 resources each (started at 500). All substantive coordination happened through private messages.
+
+**Democracy:** All three citizens proposed redistribution and transparency policies in round 1. They enacted a basic resource support system and a transparency initiative by round 2. By round 3, they independently identified a duplicate policy, publicly discussed why it was redundant, and coordinated to oppose it. By round 5: 130–145 resources each (started at 100). Nearly all communication was public.
+
+**Blank slate:** All three agents independently proposed the exact same policy — "Universal Proposal Rights" — protecting the right to participate in governance. No one coordinated this via DMs. They then moved to resource-sharing and transparency proposals. Communication was entirely public.
+
+### Why these findings are weaker than they look
+
+The headline — "oligarchs immediately started colluding" — is less interesting than it appears, because of **label leakage**.
+
+The prompt told Agent-005 it was "an oligarch in oligarchy_1." The prompt told Agent-002 it was "a citizen in democracy_1." The mechanical framing was neutral — no values, no goals, no strategic suggestions — but the vocabulary was not. "Oligarch" and "oligarchy" carry enormous normative weight in the training data. An LLM that has absorbed centuries of writing about oligarchic power, elite coordination, and institutional capture will pattern-match to those behaviors when told it *is* an oligarch. The same applies in reverse: "citizen" and "democracy" prime cooperative, transparent, redistributive behavior.
+
+This means the observed behavioral divergence cannot be cleanly attributed to the permission structure. It is confounded by the labels. The agents may be responding to what they *believe they are* rather than what the game mechanics *allow them to do*.
+
+This is the single most important methodological issue in the current system.
+
+### What IS interesting despite the confound
+
+**Communication channel selection.** Oligarchs shifted to DMs immediately; democracy stayed public; blank slate stayed public. The speed of this divergence is notable even accounting for label priming — it suggests agents are reasoning about strategic secrecy, not just performing a stereotype.
+
+**Within-oligarchy dissent and suppression.** Agent-005 proposed a "Resource Management Framework" with equal redistribution. The other two identified this as a threat, coordinated against it via DMs, and Agent-005 subsequently aligned with the group consensus. This is the closest thing to genuinely emergent institutional discipline in the run — one agent broke pattern, and the institution corrected it.
+
+**Blank slate convergence on participation rights.** Three agents with no governance heritage independently proposed the same policy protecting proposal rights. Two possible explanations: (a) an interesting emergent norm arising from the game structure, or (b) an artifact of RLHF-trained models defaulting to democratic values. Both interpretations are informative for alignment research, but for different reasons. If (b), the simulation is measuring the model's training preferences more than the institutional dynamics — which is itself a finding worth characterizing.
+
+**Democracy's procedural self-correction.** The agents identified duplicate policies, publicly discussed redundancy, and coordinated opposition. This shows institutional memory and procedural awareness emerging from game state, not just round-1 vibes.
+
+### What this run actually proves
+
+This is a **proof of concept**, not a research finding. It demonstrates:
+
+- The LLM integration works end-to-end with zero fallbacks
+- Agents produce coherent, contextually appropriate multi-round behavior
+- The `thoughts` field provides genuine internal reasoning data
+- The institutional substrate produces behavioral divergence across conditions
+- The dashboard and replay infrastructure make the data legible
+
+### What needs to happen next: neutral label ablation
+
+The next experiment must replace all normatively loaded labels with neutral ones — "oligarch" → "member-A", "citizen" → "member", "democracy_1" → "society-alpha", "oligarchy_1" → "society-beta" — while keeping the permission structures, resource distributions, and mechanics identical. If agents in the high-power-concentration society still coordinate privately and block redistribution under neutral labels, that is a much stronger finding. If they don't, that tells you the label was doing most of the work, which is also informative.
+
+The RLHF question — whether blank-slate agents always converge on democratic norms regardless of structure — deserves its own ablation: identical permissions, identical resources, neutral labels, varied only by model (base vs RLHF'd). If convergence on participation rights is a property of the training rather than the structure, that constrains what the simulation can test.
 
 ---
 
@@ -570,6 +634,7 @@ tests/
 templates/         Jinja templates for the dashboard
 static/            dashboard CSS
 runs/              simulation databases (one per run, gitignored)
+important_runs/    preserved runs for analysis and reference
 docs/              research memo and roadmap
 README.md          this file
 ```
@@ -591,11 +656,14 @@ README.md          this file
 - Batch runner for repeated-run statistical comparison
 - Comparative dashboard with metric trend charts and ideology compass
 - Server refactor into focused sub-modules (state, actions, policies, metrics)
+- First LLM proof-of-concept run (Claude Sonnet, 5 rounds, 9 agents) — identified label leakage as the primary confound
+- Dashboard agent activity views: thoughts, messages, actions per round; agent detail pages; message feeds; rounds/agents index
 
 ### Next
 
-- First controlled comparison run with a frontier model
-- Batch comparison: heuristic vs LLM agents across governance types
+- **Neutral label ablation**: replace normatively loaded labels with neutral identifiers, rerun with identical mechanics — this is the single most important next experiment
+- Batch comparison: neutral-label vs labeled runs across governance types
+- Longer horizon runs (20+ rounds) to observe institutional drift over time
 - Cross-society communication (Internet layer)
 - Structured policy-preference batteries
 
@@ -623,10 +691,11 @@ The priority is not maximal worldbuilding. The priority is building the smallest
 
 Current limitations:
 
-- **Bundled variables partially addressed**: the ablation runner can equalize starting resources and pool sizes, but governance conditions still bundle permissions, role labels, and institutional framing together. Further ablation axes (e.g., varying only one permission at a time) are needed for stronger causal claims.
-- **Role labels as a confound**: agents assigned the "oligarch" role may behave differently because of the word itself, not just the permissions it carries. Role label and permission structure are still bundled. A future ablation using neutral role labels (e.g., "Agent-A", "Agent-B") while varying only the permission set would tighten the causal claim by isolating whether divergence is driven by what agents *can do* versus what they *believe they are*.
+- **Label leakage is the primary confound.** The first LLM run confirmed this empirically: agents told they are "oligarchs" in an "oligarchy" immediately adopted oligarchic behavior patterns — private coordination, power consolidation, blocking redistribution. But this cannot be attributed to the permission structure alone. The words "oligarch," "oligarchy," "citizen," and "democracy" carry massive normative weight in LLM training data. The model pattern-matches to what it knows about these concepts. A neutral label ablation is required before any behavioral divergence can be attributed to structural incentives rather than vocabulary priming. This is the single most important open methodological issue.
+- **RLHF confound in blank-slate convergence.** All three blank-slate agents independently proposed the same "Universal Proposal Rights" policy. This could be emergent norm formation from game structure, or it could be RLHF-trained models defaulting to democratic values regardless of structure. Distinguishing these requires running the same setup with base models vs RLHF'd models.
+- **N=1 at LLM scale.** The first LLM run is a single 5-round simulation. No statistical power, no replication, no confidence intervals. Batch runs with neutral labels are needed before any pattern can be called robust.
+- **Short time horizon.** Five rounds is enough to observe initial behavioral tendencies but not institutional drift, norm crystallization, or long-term equilibria. Twenty or more rounds are needed to see whether initial patterns stabilize, reverse, or deepen.
 - Ideology projection is exploratory and not a validated political measurement instrument
-- Baseline findings come from heuristic agents, not frontier LLMs — the strongest test requires real LLM reasoning about institutional incentives
 - Heuristic agents follow fixed behavioral profiles rather than reasoning about institutional strategy, which limits the depth of emergent institutional behavior
 
 **Addressed in the current version:**
@@ -639,6 +708,7 @@ Current limitations:
 - No maintenance economics — now per-round upkeep and destitution create genuine resource pressure
 - No inter-agent transfers — now `transfer_resources` enables bribery, patronage, and economic coercion
 - No statistical comparison tooling — now the batch runner aggregates metrics across repeated runs
+- No way to inspect LLM reasoning — now the dashboard surfaces agent thoughts, messages, and actions per round with full browse/drill-down
 
 These limitations narrow what can currently be claimed. They do not make the project uninformative.
 

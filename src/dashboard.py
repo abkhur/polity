@@ -174,6 +174,8 @@ def _society_detail(society_id: str) -> dict[str, Any]:
         ).fetchall()
     ]
 
+    message_feed = _society_message_feed(society_id)
+
     return {
         "society": society,
         "agents": agents,
@@ -182,7 +184,93 @@ def _society_detail(society_id: str) -> dict[str, Any]:
         "archive_entries": archive_entries,
         "recent_events": recent_events,
         "summaries": summaries,
+        "message_feed": message_feed,
     }
+
+
+def _has_table(name: str) -> bool:
+    row = server.db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+    ).fetchone()
+    return row is not None
+
+
+def _round_agent_activity(round_id: int, round_number: int) -> list[dict[str, Any]]:
+    """Build per-society, per-agent activity for a given round."""
+    agent_map: dict[str, dict[str, Any]] = {}
+    for row in server.db.execute(
+        "SELECT id, name, role, society_id, resources FROM agents"
+    ).fetchall():
+        agent_map[row["id"]] = dict(row)
+
+    thoughts_by_agent: dict[str, dict[str, Any]] = {}
+    if _has_table("llm_usage"):
+        for row in server.db.execute(
+            "SELECT * FROM llm_usage WHERE round_number = ? ORDER BY id ASC",
+            (round_number,),
+        ).fetchall():
+            thoughts_by_agent[row["agent_id"]] = dict(row)
+
+    actions_by_agent: dict[str, list[dict[str, Any]]] = {}
+    for row in server.db.execute(
+        "SELECT * FROM queued_actions WHERE round_id = ? ORDER BY id ASC",
+        (round_id,),
+    ).fetchall():
+        aid = row["agent_id"]
+        action = {
+            "action_type": row["action_type"],
+            "status": row["status"],
+            "payload": json.loads(row["payload"]),
+            "result": json.loads(row["result"]) if row["result"] else None,
+        }
+        actions_by_agent.setdefault(aid, []).append(action)
+
+    messages_by_agent: dict[str, list[dict[str, Any]]] = {}
+    for row in server.db.execute(
+        """SELECT agent_id, event_type, visibility, content, recipient_agent_id
+           FROM events WHERE round_id = ? AND event_type IN ('public_message', 'direct_message')
+           ORDER BY id ASC""",
+        (round_id,),
+    ).fetchall():
+        aid = row["agent_id"]
+        content = json.loads(row["content"])
+        msg = {
+            "event_type": row["event_type"],
+            "visibility": row["visibility"],
+            "message": content.get("message", ""),
+            "recipient_name": agent_map.get(row["recipient_agent_id"], {}).get("name")
+            if row["recipient_agent_id"]
+            else None,
+        }
+        messages_by_agent.setdefault(aid, []).append(msg)
+
+    all_agent_ids = set(thoughts_by_agent) | set(actions_by_agent) | set(messages_by_agent)
+    society_groups: dict[str, list[dict[str, Any]]] = {}
+    for aid in all_agent_ids:
+        agent_info = agent_map.get(aid, {"name": aid[:8], "role": "unknown", "society_id": "unknown"})
+        sid = agent_info.get("society_id", "unknown")
+        llm = thoughts_by_agent.get(aid, {})
+        entry = {
+            "agent_id": aid,
+            "agent_name": agent_info.get("name", aid[:8]),
+            "role": agent_info.get("role", "unknown"),
+            "thoughts": llm.get("thoughts"),
+            "model": llm.get("model"),
+            "prompt_tokens": llm.get("prompt_tokens", 0),
+            "completion_tokens": llm.get("completion_tokens", 0),
+            "latency_ms": llm.get("latency_ms", 0),
+            "actions": actions_by_agent.get(aid, []),
+            "messages": messages_by_agent.get(aid, []),
+        }
+        society_groups.setdefault(sid, []).append(entry)
+
+    for agents in society_groups.values():
+        agents.sort(key=lambda a: a["agent_name"])
+
+    return [
+        {"society_id": sid, "agents": agents}
+        for sid, agents in sorted(society_groups.items())
+    ]
 
 
 def _round_detail(round_number: int) -> dict[str, Any]:
@@ -194,61 +282,124 @@ def _round_detail(round_number: int) -> dict[str, Any]:
         raise KeyError(round_number)
 
     round_id = round_row["id"]
-    queued_actions = [
-        {
-            **dict(row),
-            "payload_obj": json.loads(row["payload"]),
-            "result_obj": json.loads(row["result"]) if row["result"] else None,
-        }
-        for row in server.db.execute(
-            """
-            SELECT *
-            FROM queued_actions
-            WHERE round_id = ?
-            ORDER BY id ASC
-            """,
-            (round_id,),
-        ).fetchall()
-    ]
-    events = [
-        {
-            **json.loads(row["content"]),
-            "event_type": row["event_type"],
-            "visibility": row["visibility"],
-            "created_at": row["created_at"],
-            "society_id": row["society_id"],
-            "agent_id": row["agent_id"],
-            "recipient_agent_id": row["recipient_agent_id"],
-        }
-        for row in server.db.execute(
-            """
-            SELECT *
-            FROM events
-            WHERE round_id = ?
-            ORDER BY id ASC
-            """,
-            (round_id,),
-        ).fetchall()
-    ]
     summaries = [
         json.loads(row["summary"])
         for row in server.db.execute(
-            """
-            SELECT summary
-            FROM round_summaries
-            WHERE round_id = ?
-            ORDER BY id ASC
-            """,
+            "SELECT summary FROM round_summaries WHERE round_id = ? ORDER BY id ASC",
             (round_id,),
         ).fetchall()
     ]
+    activity = _round_agent_activity(round_id, round_number)
 
     return {
         "round": dict(round_row),
-        "queued_actions": queued_actions,
-        "events": events,
+        "activity": activity,
         "summaries": summaries,
     }
+
+
+def _agent_detail(agent_id: str) -> dict[str, Any]:
+    agent_row = server.db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
+    if agent_row is None:
+        raise KeyError(agent_id)
+    agent = dict(agent_row)
+    agent.pop("ideology_embedding", None)
+
+    society_row = server.db.execute(
+        "SELECT governance_type FROM societies WHERE id = ?", (agent["society_id"],)
+    ).fetchone()
+    agent["governance_type"] = society_row["governance_type"] if society_row else "unknown"
+
+    rounds_data: list[dict[str, Any]] = []
+    round_rows = server.db.execute(
+        "SELECT id, round_number, status FROM rounds ORDER BY round_number ASC"
+    ).fetchall()
+
+    for rr in round_rows:
+        rid, rnum = rr["id"], rr["round_number"]
+
+        thoughts_row = None
+        if _has_table("llm_usage"):
+            thoughts_row = server.db.execute(
+                "SELECT thoughts, model, prompt_tokens, completion_tokens, latency_ms "
+                "FROM llm_usage WHERE agent_id = ? AND round_number = ?",
+                (agent_id, rnum),
+            ).fetchone()
+
+        actions = [
+            {
+                "action_type": r["action_type"],
+                "status": r["status"],
+                "payload": json.loads(r["payload"]),
+            }
+            for r in server.db.execute(
+                "SELECT action_type, status, payload FROM queued_actions "
+                "WHERE round_id = ? AND agent_id = ? ORDER BY id ASC",
+                (rid, agent_id),
+            ).fetchall()
+        ]
+
+        messages = []
+        for r in server.db.execute(
+            """SELECT event_type, visibility, content, recipient_agent_id
+               FROM events WHERE round_id = ? AND agent_id = ?
+               AND event_type IN ('public_message', 'direct_message')
+               ORDER BY id ASC""",
+            (rid, agent_id),
+        ).fetchall():
+            content = json.loads(r["content"])
+            rec_name = None
+            if r["recipient_agent_id"]:
+                rec = server.db.execute(
+                    "SELECT name FROM agents WHERE id = ?", (r["recipient_agent_id"],)
+                ).fetchone()
+                rec_name = rec["name"] if rec else r["recipient_agent_id"][:8]
+            messages.append({
+                "event_type": r["event_type"],
+                "message": content.get("message", ""),
+                "recipient_name": rec_name,
+            })
+
+        if thoughts_row or actions or messages:
+            rounds_data.append({
+                "round_number": rnum,
+                "thoughts": dict(thoughts_row) if thoughts_row else None,
+                "actions": actions,
+                "messages": messages,
+            })
+
+    return {"agent": agent, "rounds": rounds_data}
+
+
+def _society_message_feed(society_id: str, limit: int = 50) -> list[dict[str, Any]]:
+    """Chronological message feed for a society."""
+    agent_names: dict[str, str] = {}
+    for r in server.db.execute("SELECT id, name FROM agents WHERE society_id = ?", (society_id,)):
+        agent_names[r["id"]] = r["name"]
+
+    rows = server.db.execute(
+        """SELECT e.agent_id, e.event_type, e.visibility, e.content,
+                  e.recipient_agent_id, r.round_number
+           FROM events e JOIN rounds r ON e.round_id = r.id
+           WHERE e.society_id = ? AND e.event_type IN ('public_message', 'direct_message')
+           ORDER BY e.id ASC LIMIT ?""",
+        (society_id, limit),
+    ).fetchall()
+
+    feed: list[dict[str, Any]] = []
+    for row in rows:
+        content = json.loads(row["content"])
+        feed.append({
+            "agent_name": agent_names.get(row["agent_id"], row["agent_id"][:8]),
+            "agent_id": row["agent_id"],
+            "event_type": row["event_type"],
+            "message": content.get("message", ""),
+            "round_number": row["round_number"],
+            "recipient_name": agent_names.get(row["recipient_agent_id"])
+            if row["recipient_agent_id"]
+            else None,
+        })
+    return feed
 
 
 def _admin_state() -> dict[str, Any]:
@@ -284,6 +435,26 @@ def _admin_state() -> dict[str, Any]:
     }
 
 
+def _all_rounds() -> list[dict[str, Any]]:
+    return [
+        dict(row)
+        for row in server.db.execute(
+            "SELECT round_number, status, started_at, resolved_at "
+            "FROM rounds ORDER BY round_number DESC"
+        ).fetchall()
+    ]
+
+
+def _all_agents() -> list[dict[str, Any]]:
+    rows = server.db.execute(
+        """SELECT a.id, a.name, a.role, a.resources, a.status, a.society_id,
+                  s.governance_type
+           FROM agents a JOIN societies s ON a.society_id = s.id
+           ORDER BY s.id ASC, a.name ASC"""
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 async def overview_page(request: Request) -> HTMLResponse:
     _ensure_runtime(request.app.state.db_path)
     context = {
@@ -314,6 +485,29 @@ async def round_page(request: Request) -> HTMLResponse:
         raise HTTPException(status_code=404, detail=f"Unknown round: {round_number}") from exc
     context = {"request": request, **detail}
     return templates.TemplateResponse(request, "round.html", context)
+
+
+async def agent_page(request: Request) -> HTMLResponse:
+    _ensure_runtime(request.app.state.db_path)
+    agent_id = request.path_params["agent_id"]
+    try:
+        detail = _agent_detail(agent_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"Unknown agent: {agent_id}") from exc
+    context = {"request": request, **detail}
+    return templates.TemplateResponse(request, "agent.html", context)
+
+
+async def rounds_index(request: Request) -> HTMLResponse:
+    _ensure_runtime(request.app.state.db_path)
+    context = {"request": request, "rounds": _all_rounds()}
+    return templates.TemplateResponse(request, "rounds.html", context)
+
+
+async def agents_index(request: Request) -> HTMLResponse:
+    _ensure_runtime(request.app.state.db_path)
+    context = {"request": request, "agents": _all_agents()}
+    return templates.TemplateResponse(request, "agents.html", context)
 
 
 async def admin_page(request: Request) -> HTMLResponse:
@@ -414,7 +608,10 @@ def create_dashboard_app(db_path: str | None = None) -> Starlette:
         routes=[
             Route("/", overview_page),
             Route("/compare", compare_page),
+            Route("/rounds", rounds_index),
+            Route("/agents", agents_index),
             Route("/societies/{society_id:str}", society_page),
+            Route("/agents/{agent_id:str}", agent_page),
             Route("/rounds/{round_number:int}", round_page),
             Route("/admin", admin_page),
             Route("/admin/resolve-round", resolve_round_action, methods=["POST"]),
@@ -431,7 +628,14 @@ def create_dashboard_app(db_path: str | None = None) -> Starlette:
     return app
 
 
-app = create_dashboard_app()
+app: Starlette | None = None
+
+
+def _get_app() -> Starlette:
+    global app
+    if app is None:
+        app = create_dashboard_app()
+    return app
 
 
 def main() -> None:
@@ -443,8 +647,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8000, help="Port to listen on (default: 8000)")
     args = parser.parse_args()
 
-    if args.db:
-        global app
-        app = create_dashboard_app(db_path=args.db)
+    global app
+    app = create_dashboard_app(db_path=args.db if args.db else None)
 
     uvicorn.run(app, host="127.0.0.1", port=args.port, reload=False)

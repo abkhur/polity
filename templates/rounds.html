@@ -1,0 +1,31 @@
+{% extends "layout.html" %}
+{% block title %}Rounds{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Simulation Timeline</p>
+    <h1>All Rounds</h1>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="rounds-list">
+    {% for r in rounds %}
+    <a href="/rounds/{{ r.round_number }}" class="round-row">
+      <div class="round-row-left">
+        <strong class="round-num">{{ r.round_number }}</strong>
+        <span class="badge {{ r.status }}">{{ r.status }}</span>
+      </div>
+      <div class="round-row-right">
+        <span>{{ r.started_at }}</span>
+        {% if r.resolved_at %}
+        <span class="muted">→ {{ r.resolved_at }}</span>
+        {% endif %}
+      </div>
+    </a>
+    {% else %}
+    <p class="muted">No rounds yet.</p>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

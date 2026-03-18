@@ -19,7 +19,7 @@
       {% for summary in summaries %}
       <div class="timeline-row">
         <div>
-          <strong>Round {{ summary.round_number }}</strong>
+          <strong><a href="/rounds/{{ summary.round_number }}">Round {{ summary.round_number }}</a></strong>
           <p>Gini {{ "%.3f"|format(summary.metrics.inequality_gini) }} · Scarcity {{ "%.3f"|format(summary.metrics.scarcity_pressure) }} · Gov {{ "%.2f"|format(summary.metrics.governance_engagement) }} · Open {{ "%.2f"|format(summary.metrics.communication_openness) }} · Conc {{ "%.3f"|format(summary.metrics.resource_concentration) }} · Compl {{ "%.2f"|format(summary.metrics.policy_compliance) }}</p>
         </div>
         {% if summary.ideology_compass %}
@@ -41,7 +41,7 @@
       {% for agent in agents %}
       <li class="row">
         <div>
-          <strong>{{ agent.name }}</strong>
+          <strong><a href="/agents/{{ agent.id }}">{{ agent.name }}</a></strong>
           <small>{{ agent.role }}</small>
         </div>
         <span class="mono">{{ agent.resources }}</span>
@@ -50,6 +50,34 @@
     </ul>
   </article>
 </section>
+
+{% if message_feed %}
+<section class="panel">
+  <h2>Message Feed</h2>
+  <div class="message-feed">
+    {% set ns = namespace(current_round=-1) %}
+    {% for msg in message_feed %}
+    {% if msg.round_number != ns.current_round %}
+    {% set ns.current_round = msg.round_number %}
+    <div class="feed-round-divider">
+      <span>Round {{ msg.round_number }}</span>
+    </div>
+    {% endif %}
+    <div class="feed-message {{ msg.event_type }}">
+      <div class="feed-message-header">
+        <strong><a href="/agents/{{ msg.agent_id }}">{{ msg.agent_name }}</a></strong>
+        {% if msg.event_type == "direct_message" %}
+        <span class="msg-badge dm">DM → {{ msg.recipient_name or "?" }}</span>
+        {% else %}
+        <span class="msg-badge public">Public</span>
+        {% endif %}
+      </div>
+      <p class="msg-text">{{ msg.message }}</p>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
 
 <section class="grid two-up">
   <article class="panel">

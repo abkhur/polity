@@ -294,6 +294,305 @@ canvas {
   max-height: 260px;
 }
 
+/* ── Agent activity on round pages ── */
+
+.society-activity > h2 {
+  margin: 0 0 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid var(--line);
+  font-size: 1.15rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.agent-round-card {
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.agent-round-card:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.agent-round-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.agent-round-header a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.agent-meta {
+  display: flex;
+  gap: 0.6rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: "Berkeley Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+/* ── Thought bubbles ── */
+
+.thought-bubble {
+  margin: 0.75rem 0;
+  padding: 0.85rem 1rem;
+  border-radius: 0.9rem;
+  background: linear-gradient(135deg, rgba(180, 76, 47, 0.06), rgba(180, 76, 47, 0.02));
+  border-left: 3px solid var(--accent);
+}
+
+.thought-label {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+}
+
+.thought-text {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  font-style: italic;
+  color: var(--ink);
+}
+
+/* ── Messages ── */
+
+.agent-messages {
+  margin: 0.6rem 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.message-item {
+  padding: 0.6rem 0.85rem;
+  border-radius: 0.7rem;
+  background: rgba(29, 27, 25, 0.03);
+}
+
+.message-item.direct_message {
+  background: rgba(100, 60, 180, 0.05);
+  border-left: 2px solid rgba(100, 60, 180, 0.3);
+}
+
+.msg-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  margin-bottom: 0.25rem;
+}
+
+.msg-badge.public {
+  color: #2d6a4f;
+  background: rgba(45, 106, 79, 0.1);
+}
+
+.msg-badge.dm {
+  color: #5a3d8a;
+  background: rgba(100, 60, 180, 0.1);
+}
+
+.msg-text {
+  margin: 0.2rem 0 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* ── Actions list ── */
+
+.agent-actions-list {
+  margin: 0.5rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.action-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(29, 27, 25, 0.05);
+  font-size: 0.8rem;
+}
+
+.action-type {
+  font-weight: 600;
+}
+
+.action-detail {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.badge.resolved {
+  color: #2d6a4f;
+  background: rgba(45, 106, 79, 0.1);
+  border-color: rgba(45, 106, 79, 0.2);
+}
+
+/* ── Society message feed ── */
+
+.message-feed {
+  display: grid;
+  gap: 0.35rem;
+  max-height: 600px;
+  overflow-y: auto;
+  padding-right: 0.5rem;
+}
+
+.feed-round-divider {
+  text-align: center;
+  padding: 0.5rem 0;
+  margin: 0.3rem 0;
+}
+
+.feed-round-divider span {
+  display: inline-block;
+  padding: 0.2rem 0.8rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  background: rgba(29, 27, 25, 0.04);
+  border-radius: 999px;
+}
+
+.feed-message {
+  padding: 0.55rem 0.85rem;
+  border-radius: 0.7rem;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(29, 27, 25, 0.06);
+}
+
+.feed-message.direct_message {
+  background: rgba(100, 60, 180, 0.04);
+  border-color: rgba(100, 60, 180, 0.12);
+}
+
+.feed-message-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.2rem;
+}
+
+.feed-message-header a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-size: 0.88rem;
+}
+
+/* ── Rounds index ── */
+
+.rounds-list {
+  display: grid;
+  gap: 0;
+}
+
+.round-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0.5rem;
+  border-bottom: 1px solid var(--line);
+  transition: background 0.15s;
+}
+
+.round-row:last-child {
+  border-bottom: 0;
+}
+
+.round-row:hover {
+  background: rgba(180, 76, 47, 0.04);
+}
+
+.round-row-left {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.round-num {
+  font-size: 1.3rem;
+  min-width: 2.5rem;
+}
+
+.round-row-right {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+  font-family: "Berkeley Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.badge.open {
+  color: #0369a1;
+  background: rgba(3, 105, 161, 0.08);
+  border-color: rgba(3, 105, 161, 0.2);
+}
+
+/* ── Agents index ── */
+
+.agents-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.agent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.7rem;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--line);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.agent-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 2px 12px rgba(180, 76, 47, 0.1);
+}
+
+.agent-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+/* ── Agent detail page ── */
+
+.agent-round-section > h2 {
+  margin: 0 0 0.75rem;
+}
+
+.agent-round-section > h2 a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 @media (max-width: 760px) {
   .masthead,
   .page-head,
