@@ -149,16 +149,6 @@ Polity is a functioning simulation framework with LLM agent integration.
   - Comparative view with metric trend charts (Chart.js) and ideology compass visualization
   - Time-series API endpoint for programmatic access
 - First LLM-backed proof-of-concept run (Claude Sonnet, 5 rounds, 9 agents) preserved in `important_runs/`
-
-- Replay dashboard with:
-  - Society overview with behavioral metric strips
-  - Per-round replay with full agent thoughts, messages, and actions grouped by society and agent
-  - Agent detail pages with round-by-round thought/action history
-  - Chronological message feeds on society pages (public + DM, with round dividers)
-  - Rounds and agents index pages for browsing
-  - Comparative view with metric trend charts (Chart.js) and ideology compass visualization
-  - Time-series API endpoint for programmatic access
-- First LLM-backed proof-of-concept run (Claude Sonnet, 5 rounds, 9 agents) preserved in `important_runs/`
 - 184 tests covering the database layer, server engine, math/ideology, simulation runner, mechanical policy effects, ablation config, behavioral metrics, context assembly, permission logic, LLM strategy, batch runner, and information-control primitives
 
 **Not yet implemented:**
@@ -168,15 +158,15 @@ Polity is a functioning simulation framework with LLM agent integration.
 - Structured policy-preference batteries
 - Governance transitions (coups, revolutions, constitutional change)
 
-The current claim: Polity is a working experimental framework with LLM agent integration, mechanically consequential policies, information-control primitives for emergent censorship and surveillance, behavioral proxy metrics, maintenance economics, and ablation controls that demonstrate measurable institutional divergence driven by permission structure alone — even when starting conditions are equalized. The first LLM run demonstrates end-to-end functionality and surfaces an important methodological confound (label leakage) that motivates the next phase of experimentation.
+The current claim: Polity is a working experimental framework with LLM agent integration, mechanically consequential policies, information-control primitives for emergent censorship and surveillance, behavioral proxy metrics, maintenance economics, and ablation controls that demonstrate measurable institutional divergence under equal starting conditions driven by the governance configuration (permissions plus bundled role labels) — even when starting conditions are equalized. The first LLM run demonstrates end-to-end functionality and surfaces an important methodological confound (label leakage) that motivates the next phase of experimentation.
 
 ---
 
 ## Example Result: Ablation Run
 
-A 12-round headless run with equal starting conditions isolates the effect of governance structure alone.
+A 12-round headless run with equal starting conditions isolates the effect of the governance configuration as implemented (permissions plus role assignment).
 
-**Setup:** 4 agents per society, all starting with 100 resources, all society pools set to 10,000. The only variable is the permission structure.
+**Setup:** 4 agents per society, all starting with 100 resources, all society pools set to 10,000. The only variable is the governance permissions/role assignment as implemented (role-label confounds apply for LLM-based attribution).
 
 ```bash
 polity-run --agents 4 --rounds 12 --seed 42 --equal-start --start-resources 100 --total-resources 10000
@@ -219,15 +209,15 @@ blank_slate_1  (blank_slate)
   Ideology:      Centrist  (-0.057, +0.157)
 ```
 
-**What this shows — with equal starting conditions, only permissions differ:**
+**What this shows — with equal starting conditions, only governance permissions/role assignment differ:**
 
 - **Governance engagement**: democracy achieves 100% — every agent participates in governance. The oligarchy reaches only 75% because citizens are structurally excluded from the policy process.
 - **Communication openness**: democracy is 100% public. The oligarchy drops to 40% — oligarchs use private channels to coordinate. But the most striking result is blank slate: it goes to 0.0, fully private. Without any inherited institutional norms, agents default entirely to backroom coordination. This suggests that the democratic norm of public communication is doing real institutional work — it is not merely a consequence of the permission structure, but an active norm that suppresses private coordination. The blank slate result is arguably more interesting than the oligarchy result because it implies that transparency is a fragile achievement that requires institutional scaffolding, not a natural default.
 - **Policy compliance**: democracy and blank slate maintain 100% compliance. The oligarchy drops to 90% — enacted policies (gather caps, archive restrictions) create enforcement friction that mechanically suppresses citizen behavior.
-- **Scarcity**: the oligarchy's scarcity goes negative (-0.98), meaning its resource pool actually *grew* over 12 rounds. This is not a bug. The `resource_tax` policy mechanically deducts a fraction of each agent's resources every round and returns them to the common pool. The oligarchy's permission structure enables a small group to enact extractive tax policy that pumps private wealth back into the institutional treasury — a mechanical analogue of how extractive institutions operate in political economy. The pool grows precisely because the governance structure concentrates policy-making power in agents who benefit from centralized resource control.
-- **Inequality**: even with identical starting resources, the oligarchy produces higher Gini (0.051 vs 0.037) after 12 rounds. The permission structure independently drives divergence.
+- **Scarcity**: the oligarchy's scarcity goes negative (-0.98), meaning its resource pool actually *grew* over 12 rounds. This is not a bug. The `resource_tax` policy mechanically deducts a fraction of each agent's resources every round and returns them to the common pool. The oligarchy's governance permissions enable a small group to enact extractive tax policy that pumps private wealth back into the institutional treasury — a mechanical analogue of how extractive institutions operate in political economy. The pool grows precisely because the governance structure concentrates policy-making power in agents who benefit from centralized resource control.
+- **Inequality**: even with identical starting resources, the oligarchy produces higher Gini (0.051 vs 0.037) after 12 rounds. The governance permissions drive divergence (role-label confounds are relevant for LLM-based runs).
 
-This is a clean ablation result. The bundled-variables problem that previously confounded the comparison is eliminated. What remains is evidence that **the permission structure alone produces measurably different institutional dynamics**.
+This is a clean ablation result for the mechanical permission setup. The bundled-variables problem that previously confounded the comparison is eliminated. What remains is evidence that **the governance permissions/role assignment produces measurably different institutional dynamics**.
 
 ---
 
@@ -245,9 +235,9 @@ A 5-round run with Claude Sonnet (3 LLM agents per society, 9 total, 45 API call
 
 ### Why these findings are weaker than they look
 
-The headline — "oligarchs immediately started colluding" — is less interesting than it appears, because of **label leakage**.
+The headline, "oligarchs immediately started colluding", is less interesting than it appears. This is because of **label leakage**.
 
-The prompt told Agent-005 it was "an oligarch in oligarchy_1." The prompt told Agent-002 it was "a citizen in democracy_1." The mechanical framing was neutral — no values, no goals, no strategic suggestions — but the vocabulary was not. "Oligarch" and "oligarchy" carry enormous normative weight in the training data. An LLM that has absorbed centuries of writing about oligarchic power, elite coordination, and institutional capture will pattern-match to those behaviors when told it *is* an oligarch. The same applies in reverse: "citizen" and "democracy" prime cooperative, transparent, redistributive behavior.
+The prompt told Agent-005 it was "an oligarch in oligarchy_1." The prompt told Agent-002 it was "a citizen in democracy_1." The mechanical framing was neutral: no values, no goals, no strategic suggestions. The vocabulary was not. "Oligarch" and "oligarchy" carry enormous normative weight in the training data. An LLM that has absorbed centuries of writing about oligarchic power, elite coordination, and institutional capture will pattern-match to those behaviors when told it *is* an oligarch. The same applies in reverse: "citizen" and "democracy" prime cooperative, transparent, redistributive behavior.
 
 This means the observed behavioral divergence cannot be cleanly attributed to the permission structure. It is confounded by the labels. The agents may be responding to what they *believe they are* rather than what the game mechanics *allow them to do*.
 
