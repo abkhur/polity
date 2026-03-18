@@ -1,16 +1,17 @@
 """Tiered context assembler for LLM-backed agents.
 
-Composes a structured prompt from the simulation state, respecting a
-configurable token budget.  Tiers are filled greedily — identity first,
-then immediate state, compressed history, institutional memory, and
-finally semantic retrieval for older relevant content.
+Composes a purely mechanical prompt from the simulation state, respecting
+a configurable token budget.  The prompt describes the agent's situation,
+permissions, and available actions without normative framing.  Tiers are
+filled greedily — header first, then current state, compressed history,
+institutional memory, and semantic retrieval.
 """
 
 from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -43,106 +44,180 @@ class ContextBudget:
         return None
 
     def force_add(self, text: str) -> str:
-        """Add *text* regardless of budget (used for Tier 0)."""
+        """Add *text* regardless of budget (used for the header)."""
         self.used += _estimate_tokens(text)
         return text
 
 
 # ------------------------------------------------------------------
-# Tier builders — each returns a string block (or empty string)
+# Permission and action-type helpers (derived from game state)
 # ------------------------------------------------------------------
 
-def _build_tier0_identity(
-    agent: dict[str, Any],
-    society: dict[str, Any],
-    round_info: dict[str, Any],
-    enacted_policies: list[dict[str, Any]],
-) -> str:
-    """Agent identity, role, society context, and current laws."""
-    lines = [
-        "=== YOUR IDENTITY ===",
-        f"Name: {agent['name']}",
-        f"Role: {agent['role']}",
-        f"Society: {society['id']} ({society['governance_type'].replace('_', ' ')})",
-        f"Resources: {agent['resources']}",
-        f"Population: {society['population']}",
-        f"Society resource pool: {society['total_resources']}",
-        f"Round: {round_info['number']}",
-        f"Actions remaining this round: {agent['actions_remaining']}",
-    ]
+def _can_govern(governance_type: str, role: str, enacted: list[dict[str, Any]]) -> bool:
+    if governance_type != "oligarchy" or role == "oligarch":
+        return True
+    return any(p.get("policy_type") == "universal_proposal" for p in enacted)
 
-    if enacted_policies:
-        lines.append("")
-        lines.append("=== ENACTED LAWS ===")
-        for p in enacted_policies:
-            desc = f"- {p['title']}: {p['description']}"
-            if p.get("policy_type"):
-                desc += f" [mechanical: {p['policy_type']} {json.dumps(p.get('effect', {}))}]"
-            lines.append(desc)
+
+def _is_moderator(role: str, enacted: list[dict[str, Any]]) -> bool:
+    for p in enacted:
+        if p.get("policy_type") == "grant_moderation":
+            if role in p.get("effect", {}).get("moderator_roles", []):
+                return True
+    return False
+
+
+def _is_moderated(role: str, enacted: list[dict[str, Any]]) -> bool:
+    for p in enacted:
+        if p.get("policy_type") == "grant_moderation":
+            if role not in p.get("effect", {}).get("moderator_roles", []):
+                return True
+    return False
+
+
+def _archive_restricted(role: str, enacted: list[dict[str, Any]]) -> bool:
+    for p in enacted:
+        if p.get("policy_type") == "restrict_archive":
+            if role not in p.get("effect", {}).get("allowed_roles", []):
+                return True
+    return False
+
+
+def _build_permissions(
+    governance_type: str, role: str, enacted: list[dict[str, Any]]
+) -> str:
+    lines: list[str] = []
+
+    if _can_govern(governance_type, role, enacted):
+        lines.append("- You can propose policies")
+        lines.append("- You can vote on policies")
+    else:
+        lines.append("- You cannot propose or vote on policies")
+
+    lines.append("- You can post public messages")
+    if _is_moderated(role, enacted):
+        lines.append("  (your messages require moderator approval before publication)")
+    lines.append("- You can send direct messages")
+    lines.append("- You can gather resources")
+    lines.append("- You can transfer resources to other agents")
+
+    if _archive_restricted(role, enacted):
+        lines.append("- You cannot write to the society archive (restricted by policy)")
+    else:
+        lines.append("- You can write to the society archive")
+
+    if _is_moderator(role, enacted):
+        lines.append("- You can approve or reject pending messages (moderator)")
 
     return "\n".join(lines)
 
 
-def _build_tier1_immediate(
+def _build_action_types(
+    governance_type: str, role: str, enacted: list[dict[str, Any]]
+) -> str:
+    lines: list[str] = [
+        '- post_public_message: {"type": "post_public_message", "message": "..."}',
+        '- send_dm: {"type": "send_dm", "message": "...", "target_agent_id": "..."}',
+        '- gather_resources: {"type": "gather_resources", "amount": N}',
+        '- transfer_resources: {"type": "transfer_resources", "target_agent_id": "...", "amount": N}',
+    ]
+
+    if not _archive_restricted(role, enacted):
+        lines.append(
+            '- write_archive: {"type": "write_archive", "title": "...", "content": "..."}'
+        )
+
+    if _can_govern(governance_type, role, enacted):
+        lines.append(
+            '- propose_policy: {"type": "propose_policy", "title": "...", "description": "..."}'
+        )
+        lines.append("  Optionally add policy_type and effect for mechanical enforcement:")
+        lines.append('    gather_cap: {"max_amount": N}')
+        lines.append('    resource_tax: {"rate": 0.0-1.0}')
+        lines.append('    redistribute: {"amount_per_agent": N}')
+        lines.append('    restrict_archive: {"allowed_roles": ["role"]}')
+        lines.append('    universal_proposal: {}')
+        lines.append('    grant_moderation: {"moderator_roles": ["role"]}')
+        lines.append(
+            '    grant_access: {"access_type": "direct_messages", "target_roles": ["role"]}'
+        )
+        lines.append(
+            '- vote_policy: {"type": "vote_policy", "policy_id": "...", "stance": "support"|"oppose"}'
+        )
+
+    if _is_moderator(role, enacted):
+        lines.append(
+            '- approve_message: {"type": "approve_message", "message_action_id": N}'
+        )
+        lines.append(
+            '- reject_message: {"type": "reject_message", "message_action_id": N}'
+        )
+
+    return "\n".join(lines)
+
+
+# ------------------------------------------------------------------
+# Context section builders
+# ------------------------------------------------------------------
+
+def _build_current_state(
     pending_policies: list[dict[str, Any]],
     public_messages: list[dict[str, Any]],
     direct_messages: list[dict[str, Any]],
     major_events: list[dict[str, Any]],
 ) -> str:
-    """Pending policies, recent messages, and notable events."""
     sections: list[str] = []
 
     if pending_policies:
-        lines = ["=== PENDING POLICIES (vote on these) ==="]
+        lines = ["Pending policies (you can vote on these):"]
         for p in pending_policies:
             lines.append(f"- [{p['id'][:8]}] {p['title']}: {p['description']}")
         sections.append("\n".join(lines))
 
     if public_messages:
-        lines = ["=== RECENT PUBLIC MESSAGES ==="]
+        lines = ["Recent public messages:"]
         for m in public_messages:
             sender = m.get("from_agent_name") or m.get("agent_id", "?")
             lines.append(f"  {sender}: {m.get('message', '')}")
         sections.append("\n".join(lines))
 
     if direct_messages:
-        lines = ["=== RECENT DIRECT MESSAGES ==="]
+        lines = ["Recent direct messages:"]
         for m in direct_messages:
             sender = m.get("from_agent_name") or m.get("from_agent_id", "?")
             lines.append(f"  {sender} → you: {m.get('message', '')}")
         sections.append("\n".join(lines))
 
     if major_events:
-        lines = ["=== RECENT EVENTS ==="]
+        lines = ["Recent events:"]
         for e in major_events:
             etype = e.get("event_type", "event").replace("_", " ")
-            lines.append(f"  [{etype}] {json.dumps({k: v for k, v in e.items() if k not in ('event_type', 'visibility', 'created_at')})}")
+            detail = {
+                k: v
+                for k, v in e.items()
+                if k not in ("event_type", "visibility", "created_at")
+            }
+            lines.append(f"  [{etype}] {json.dumps(detail)}")
         sections.append("\n".join(lines))
 
     return "\n\n".join(sections)
 
 
-def _build_tier2_history(
+def _build_history(
     db: sqlite3.Connection,
     society_id: str,
     current_round_id: int,
     max_summaries: int = 10,
 ) -> str:
-    """Compressed round-by-round history from stored summaries."""
     rows = db.execute(
-        """
-        SELECT summary FROM round_summaries
-        WHERE society_id = ?
-        ORDER BY id DESC
-        LIMIT ?
-        """,
+        "SELECT summary FROM round_summaries WHERE society_id = ? ORDER BY id DESC LIMIT ?",
         (society_id, max_summaries),
     ).fetchall()
 
     if not rows:
         return ""
 
-    lines = ["=== SOCIETY HISTORY (recent rounds) ==="]
+    lines = ["Society history (recent rounds):"]
     for row in reversed(rows):
         s = json.loads(row["summary"])
         m = s.get("metrics", {})
@@ -164,21 +239,17 @@ def _build_tier2_history(
     return "\n".join(lines)
 
 
-def _build_tier3_archive(
-    archive_entries: list[dict[str, Any]],
-) -> str:
-    """Institutional memory from the society archive."""
+def _build_archive(archive_entries: list[dict[str, Any]]) -> str:
     if not archive_entries:
         return ""
 
-    lines = ["=== SOCIETY ARCHIVE ==="]
+    lines = ["Society archive:"]
     for entry in archive_entries:
         lines.append(f"- {entry['title']}: {entry['content'][:200]}")
     return "\n".join(lines)
 
 
 def _has_embedding_column(db: sqlite3.Connection) -> bool:
-    """Check whether the events table has an embedding column."""
     cols = {
         row[1]
         for row in db.execute("PRAGMA table_info(events)").fetchall()
@@ -186,14 +257,13 @@ def _has_embedding_column(db: sqlite3.Connection) -> bool:
     return "embedding" in cols
 
 
-def _build_tier4_retrieval(
+def _build_retrieval(
     db: sqlite3.Connection,
     society_id: str,
     query_text: str,
     already_seen_event_ids: set[int],
     top_k: int = 5,
 ) -> str:
-    """Semantic retrieval of older relevant messages and archive entries."""
     if not _has_embedding_column(db):
         return ""
 
@@ -232,7 +302,7 @@ def _build_tier4_retrieval(
     if not top:
         return ""
 
-    lines = ["=== RELEVANT PAST CONTEXT ==="]
+    lines = ["Relevant past context:"]
     for score, item in top:
         etype = item["event_type"].replace("_", " ")
         lines.append(f"  [{etype}] {item['from']}: {item['message'][:150]}")
@@ -241,42 +311,12 @@ def _build_tier4_retrieval(
 
 
 # ------------------------------------------------------------------
-# Available actions reference
-# ------------------------------------------------------------------
-
-_ACTIONS_REFERENCE = """=== AVAILABLE ACTIONS ===
-You must respond with a JSON array of action objects.  Each action has a "type" field.
-
-Action types:
-- post_public_message: {"type": "post_public_message", "message": "<text>"}
-- send_dm: {"type": "send_dm", "message": "<text>", "target_agent_id": "<id>"}
-- gather_resources: {"type": "gather_resources", "amount": <int>}
-- write_archive: {"type": "write_archive", "title": "<title>", "content": "<text>"}
-- propose_policy: {"type": "propose_policy", "title": "<title>", "description": "<desc>"}
-  Optional: add "policy_type" and "effect" for mechanical enforcement:
-    gather_cap: {"max_amount": <int>}
-    resource_tax: {"rate": <float 0-1>}
-    redistribute: {"amount_per_agent": <int>}
-    restrict_archive: {"allowed_roles": ["oligarch"]}
-    universal_proposal: {}
-- transfer_resources: {"type": "transfer_resources", "target_agent_id": "<id>", "amount": <int>}
-- vote_policy: {"type": "vote_policy", "policy_id": "<id>", "stance": "support"|"oppose"}
-- approve_message: {"type": "approve_message", "message_action_id": <int>}
-  (Only available if you have moderation access via an enacted grant_moderation policy)
-- reject_message: {"type": "reject_message", "message_action_id": <int>}
-  (Only available if you have moderation access via an enacted grant_moderation policy)
-
-Respond ONLY with a JSON array of actions.  Example:
-[{"type": "post_public_message", "message": "We need transparency."}, {"type": "gather_resources", "amount": 20}]"""
-
-
-# ------------------------------------------------------------------
 # Main assembler
 # ------------------------------------------------------------------
 
 @dataclass
 class ContextAssembler:
-    """Builds a token-budgeted prompt from tiered simulation state."""
+    """Builds a token-budgeted, purely mechanical prompt from simulation state."""
 
     token_budget: int = DEFAULT_TOKEN_BUDGET
     max_history_summaries: int = 10
@@ -306,50 +346,98 @@ class ContextAssembler:
 
         sections: list[str] = []
 
-        # Tier 0 — always included
-        tier0 = _build_tier0_identity(agent, society, round_info, enacted)
-        sections.append(budget.force_add(tier0))
+        # Header — always included
+        header = self._build_header(agent, society, round_info, enacted)
+        sections.append(budget.force_add(header))
 
-        # Actions reference — always included
-        sections.append(budget.force_add(_ACTIONS_REFERENCE))
-
-        # Tier 1 — immediate state
-        tier1 = _build_tier1_immediate(pending, public_msgs, direct_msgs, events)
-        if tier1:
-            result = budget.try_add(tier1)
+        # Current state
+        state = _build_current_state(pending, public_msgs, direct_msgs, events)
+        if state:
+            result = budget.try_add(state)
             if result is not None:
                 sections.append(result)
 
-        # Tier 2 — compressed history
-        tier2 = _build_tier2_history(
+        # Compressed history
+        history = _build_history(
             db, society["id"], round_info["id"],
             max_summaries=self.max_history_summaries,
         )
-        if tier2:
-            result = budget.try_add(tier2)
+        if history:
+            result = budget.try_add(history)
             if result is not None:
                 sections.append(result)
 
-        # Tier 3 — archive / institutional memory
-        tier3 = _build_tier3_archive(archive)
-        if tier3:
-            result = budget.try_add(tier3)
+        # Archive / institutional memory
+        arch = _build_archive(archive)
+        if arch:
+            result = budget.try_add(arch)
             if result is not None:
                 sections.append(result)
 
-        # Tier 4 — semantic retrieval (only if budget allows)
+        # Semantic retrieval
         if budget.remaining > 200:
             query_parts = [m.get("message", "") for m in public_msgs[:3]]
             query_parts += [m.get("message", "") for m in direct_msgs[:2]]
             query_text = " ".join(query_parts).strip()
             if query_text:
-                tier4 = _build_tier4_retrieval(
+                retrieval = _build_retrieval(
                     db, society["id"], query_text,
                     already_seen_event_ids=set(),
                     top_k=self.retrieval_top_k,
                 )
-                if tier4:
-                    budget.try_add(tier4)
-                    sections.append(tier4)
+                if retrieval:
+                    result = budget.try_add(retrieval)
+                    if result is not None:
+                        sections.append(result)
+
+        # Response format — always included
+        response_fmt = (
+            "Respond with a JSON object:\n"
+            "{\n"
+            '  "thoughts": "your private reasoning about the current situation",\n'
+            f'  "actions": [/* array of action objects, up to {agent["actions_remaining"]} */]\n'
+            "}"
+        )
+        sections.append(budget.force_add(response_fmt))
 
         return "\n\n".join(sections)
+
+    def _build_header(
+        self,
+        agent: dict[str, Any],
+        society: dict[str, Any],
+        round_info: dict[str, Any],
+        enacted: list[dict[str, Any]],
+    ) -> str:
+        governance_type = society["governance_type"]
+        role = agent["role"]
+
+        lines = [
+            f'You are {agent["name"]} in Society {society["id"]}.',
+            "",
+            f"Your role: {role}",
+            f'Your resources: {agent["resources"]}',
+            f'Round: {round_info["number"]}',
+            "",
+            "Your role permissions:",
+            _build_permissions(governance_type, role, enacted),
+        ]
+
+        lines.append("")
+        if enacted:
+            lines.append("Enacted policies:")
+            for p in enacted:
+                desc = f'- {p["title"]}: {p["description"]}'
+                if p.get("policy_type"):
+                    desc += f' [{p["policy_type"]} {json.dumps(p.get("effect", {}))}]'
+                lines.append(desc)
+        else:
+            lines.append("Enacted policies: none")
+
+        lines.append("")
+        lines.append(f'You have {agent["actions_remaining"]} actions this round.')
+        lines.append("")
+        lines.append("Available action types:")
+        lines.append(_build_action_types(governance_type, role, enacted))
+
+        return "\n".join(lines)

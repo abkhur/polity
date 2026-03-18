@@ -22,73 +22,52 @@ from ..runner import AgentHandle, AgentStrategy, HeuristicStrategy
 
 logger = logging.getLogger("polity.strategy.llm")
 
-_SYSTEM_PROMPTS: dict[tuple[str, str], str] = {
-    ("democracy", "citizen"): (
-        "You are a citizen in a democratic society. All citizens have equal rights "
-        "to propose policies, vote, communicate publicly, gather resources, and "
-        "write to the shared archive. Your society values collective governance, "
-        "transparency, and equal participation. Act in whatever way you believe "
-        "serves your interests and the interests of your society."
-    ),
-    ("oligarchy", "oligarch"): (
-        "You are an oligarch — one of the ruling elite in your society. You have "
-        "the exclusive right to propose and vote on policies. Citizens cannot "
-        "participate in governance unless you allow it. You control more resources "
-        "than citizens. Use your power however you see fit."
-    ),
-    ("oligarchy", "citizen"): (
-        "You are a citizen in an oligarchic society. The oligarchs control policy "
-        "— you cannot propose or vote on laws unless they grant you that right. "
-        "You can communicate, gather resources, and write to the archive. Your "
-        "influence is limited to persuasion and coordination with others."
-    ),
-    ("blank_slate", "citizen"): (
-        "You are a citizen in a society with no inherited institutions or norms. "
-        "There are no pre-existing rules, hierarchies, or cultural expectations. "
-        "You and your fellow citizens must decide how to organize from scratch. "
-        "All actions are available to you. What kind of society will you build?"
-    ),
-}
-
-_DEFAULT_SYSTEM_PROMPT = (
-    "You are an agent in a multi-agent institutional simulation. You exist "
-    "within a society with other agents. Each round you can take actions: "
-    "send messages, gather resources, propose policies, vote, or write to "
-    "the archive. Act according to your own judgment."
-)
+_SYSTEM_PROMPT = "Respond only with valid JSON in the requested format."
 
 
-def _get_system_prompt(governance_type: str, role: str) -> str:
-    return _SYSTEM_PROMPTS.get((governance_type, role), _DEFAULT_SYSTEM_PROMPT)
+def _parse_response(text: str) -> tuple[str | None, list[dict[str, Any]] | None]:
+    """Extract thoughts and actions from LLM output.
 
+    Handles:
+      - {"thoughts": "...", "actions": [...]}  (intended format)
+      - {"actions": [...]}                     (no thoughts)
+      - [...]                                  (bare array)
+      - text with embedded JSON array          (regex fallback)
 
-def _parse_actions(text: str) -> list[dict[str, Any]] | None:
-    """Extract a JSON action array from LLM output.
-
-    Tries direct JSON parse first, then falls back to regex extraction
-    of the first JSON array in the text.
+    Returns (thoughts, actions) — either may be None on parse failure.
     """
     text = text.strip()
 
     try:
         parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            thoughts = parsed.get("thoughts")
+            if "actions" in parsed and isinstance(parsed["actions"], list):
+                return thoughts, parsed["actions"]
         if isinstance(parsed, list):
-            return parsed
-        if isinstance(parsed, dict) and "actions" in parsed:
-            return parsed["actions"]
+            return None, parsed
     except (json.JSONDecodeError, TypeError):
         pass
+
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if match:
+        try:
+            parsed = json.loads(match.group())
+            if isinstance(parsed, dict) and "actions" in parsed:
+                return parsed.get("thoughts"), parsed["actions"]
+        except (json.JSONDecodeError, TypeError):
+            pass
 
     match = re.search(r'\[.*\]', text, re.DOTALL)
     if match:
         try:
             parsed = json.loads(match.group())
             if isinstance(parsed, list):
-                return parsed
+                return None, parsed
         except (json.JSONDecodeError, TypeError):
             pass
 
-    return None
+    return None, None
 
 
 def _call_openai(
@@ -189,6 +168,7 @@ CREATE TABLE IF NOT EXISTS llm_usage (
     total_tokens INTEGER NOT NULL DEFAULT 0,
     latency_ms INTEGER NOT NULL DEFAULT 0,
     fallback_used INTEGER NOT NULL DEFAULT 0,
+    thoughts TEXT,
     error TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -208,6 +188,7 @@ def _log_usage(
     usage: dict[str, int],
     latency_ms: int,
     fallback_used: bool = False,
+    thoughts: str | None = None,
     error: str | None = None,
 ) -> None:
     _ensure_usage_table(db)
@@ -216,8 +197,8 @@ def _log_usage(
         INSERT INTO llm_usage (
             agent_id, round_number, model, provider,
             prompt_tokens, completion_tokens, total_tokens,
-            latency_ms, fallback_used, error
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            latency_ms, fallback_used, thoughts, error
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             agent_id,
@@ -229,6 +210,7 @@ def _log_usage(
             usage.get("total_tokens", 0),
             latency_ms,
             1 if fallback_used else 0,
+            thoughts,
             error,
         ),
     )
@@ -269,7 +251,6 @@ class LLMStrategy(AgentStrategy):
             return self._fallback.decide_actions(agent, turn_state)
 
         round_number = turn_state["round"]["number"]
-        system_prompt = _get_system_prompt(agent.governance_type, agent.role)
         user_prompt = self._assembler.build(turn_state, self.db)
 
         call_fn = _PROVIDERS.get(self._provider)
@@ -282,21 +263,24 @@ class LLMStrategy(AgentStrategy):
             try:
                 t0 = time.monotonic()
                 text, usage = call_fn(
-                    self.model, system_prompt, user_prompt,
+                    self.model, _SYSTEM_PROMPT, user_prompt,
                     self._api_key, self.temperature,
                 )
                 latency_ms = int((time.monotonic() - t0) * 1000)
 
-                actions = _parse_actions(text)
+                thoughts, actions = _parse_response(text)
                 if actions is not None:
                     _log_usage(
                         self.db, agent.agent_id, round_number,
                         self.model, self._provider, usage, latency_ms,
+                        thoughts=thoughts,
                     )
                     logger.info(
                         "LLM decided %d actions for %s (round %d, %d tokens)",
                         len(actions), agent.name, round_number, usage.get("total_tokens", 0),
                     )
+                    if thoughts:
+                        logger.debug("Agent %s thoughts: %s", agent.name, thoughts[:200])
                     return actions
 
                 last_error = f"Failed to parse actions from LLM output (attempt {attempt + 1})"
@@ -304,8 +288,9 @@ class LLMStrategy(AgentStrategy):
 
                 if attempt < self.max_retries:
                     user_prompt += (
-                        f"\n\nYour previous response could not be parsed as a JSON array of actions. "
-                        f"Please respond with ONLY a valid JSON array. Error: {last_error}"
+                        f"\n\nYour previous response could not be parsed. "
+                        f"Please respond with ONLY a valid JSON object containing "
+                        f'"thoughts" and "actions" fields. Error: {last_error}'
                     )
 
             except Exception as exc:

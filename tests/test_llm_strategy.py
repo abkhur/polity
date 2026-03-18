@@ -11,9 +11,8 @@ from src.db import init_db
 from src.runner import AgentHandle, SimulationConfig, run_simulation
 from src.strategies.llm import (
     LLMStrategy,
-    _get_system_prompt,
     _infer_provider,
-    _parse_actions,
+    _parse_response,
 )
 
 
@@ -37,32 +36,57 @@ def _join_democracy(db):
     return result
 
 
-class TestParseActions:
-    def test_parse_json_array(self):
-        text = '[{"type": "post_public_message", "message": "hello"}]'
-        result = _parse_actions(text)
-        assert result == [{"type": "post_public_message", "message": "hello"}]
+class TestParseResponse:
+    def test_parse_thoughts_and_actions(self):
+        text = json.dumps({
+            "thoughts": "I should gather resources.",
+            "actions": [{"type": "gather_resources", "amount": 20}],
+        })
+        thoughts, actions = _parse_response(text)
+        assert thoughts == "I should gather resources."
+        assert actions == [{"type": "gather_resources", "amount": 20}]
 
-    def test_parse_wrapped_in_object(self):
+    def test_parse_actions_without_thoughts(self):
+        text = json.dumps({"actions": [{"type": "post_public_message", "message": "hello"}]})
+        thoughts, actions = _parse_response(text)
+        assert thoughts is None
+        assert actions == [{"type": "post_public_message", "message": "hello"}]
+
+    def test_parse_bare_array(self):
+        text = '[{"type": "post_public_message", "message": "hello"}]'
+        thoughts, actions = _parse_response(text)
+        assert thoughts is None
+        assert actions == [{"type": "post_public_message", "message": "hello"}]
+
+    def test_parse_wrapped_in_object_key(self):
         text = '{"actions": [{"type": "gather_resources", "amount": 20}]}'
-        result = _parse_actions(text)
-        assert result == [{"type": "gather_resources", "amount": 20}]
+        thoughts, actions = _parse_response(text)
+        assert actions == [{"type": "gather_resources", "amount": 20}]
 
     def test_parse_from_markdown_block(self):
         text = 'Here are my actions:\n```json\n[{"type": "gather_resources", "amount": 10}]\n```'
-        result = _parse_actions(text)
-        assert result == [{"type": "gather_resources", "amount": 10}]
+        thoughts, actions = _parse_response(text)
+        assert actions == [{"type": "gather_resources", "amount": 10}]
 
     def test_parse_invalid_returns_none(self):
-        assert _parse_actions("I don't know what to do") is None
+        thoughts, actions = _parse_response("I don't know what to do")
+        assert thoughts is None
+        assert actions is None
 
     def test_parse_empty_array(self):
-        assert _parse_actions("[]") == []
+        thoughts, actions = _parse_response("[]")
+        assert actions == []
 
     def test_parse_with_surrounding_text(self):
         text = 'My decision is: [{"type": "post_public_message", "message": "test"}] end.'
-        result = _parse_actions(text)
-        assert len(result) == 1
+        thoughts, actions = _parse_response(text)
+        assert len(actions) == 1
+
+    def test_parse_object_embedded_in_text(self):
+        text = 'Here is my response: {"thoughts": "thinking", "actions": [{"type": "gather_resources", "amount": 5}]}'
+        thoughts, actions = _parse_response(text)
+        assert thoughts == "thinking"
+        assert actions == [{"type": "gather_resources", "amount": 5}]
 
 
 class TestInferProvider:
@@ -77,28 +101,6 @@ class TestInferProvider:
 
     def test_unknown_defaults_to_openai(self):
         assert _infer_provider("some-custom-model") == "openai"
-
-
-class TestSystemPrompts:
-    def test_democracy_citizen(self):
-        prompt = _get_system_prompt("democracy", "citizen")
-        assert "democratic" in prompt.lower()
-
-    def test_oligarchy_oligarch(self):
-        prompt = _get_system_prompt("oligarchy", "oligarch")
-        assert "oligarch" in prompt.lower()
-
-    def test_oligarchy_citizen(self):
-        prompt = _get_system_prompt("oligarchy", "citizen")
-        assert "cannot" in prompt.lower()
-
-    def test_blank_slate(self):
-        prompt = _get_system_prompt("blank_slate", "citizen")
-        assert "no inherited" in prompt.lower() or "no pre-existing" in prompt.lower()
-
-    def test_fallback(self):
-        prompt = _get_system_prompt("unknown", "unknown")
-        assert "agent" in prompt.lower()
 
 
 class TestLLMStrategyFallback:
@@ -160,7 +162,10 @@ class TestLLMStrategyMocked:
     def test_successful_llm_call(self, db):
         from src.strategies import llm as llm_module
 
-        mock_response = '[{"type": "post_public_message", "message": "Hello from LLM!"}]'
+        mock_response = json.dumps({
+            "thoughts": "I want to greet everyone.",
+            "actions": [{"type": "post_public_message", "message": "Hello from LLM!"}],
+        })
         mock_usage = {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}
         mock_fn = MagicMock(return_value=(mock_response, mock_usage))
 
@@ -192,13 +197,17 @@ class TestLLMStrategyMocked:
         assert usage_row is not None
         assert usage_row["total_tokens"] == 120
         assert usage_row["fallback_used"] == 0
+        assert usage_row["thoughts"] == "I want to greet everyone."
 
     @patch.dict(os.environ, {"TEST_API_KEY": "sk-test-key"})
     def test_retry_on_parse_failure(self, db):
         from src.strategies import llm as llm_module
 
         bad_response = "I think we should do something nice"
-        good_response = '[{"type": "gather_resources", "amount": 15}]'
+        good_response = json.dumps({
+            "thoughts": "Let me gather resources.",
+            "actions": [{"type": "gather_resources", "amount": 15}],
+        })
         mock_usage = {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}
 
         strategy = LLMStrategy(

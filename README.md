@@ -107,18 +107,20 @@ Polity is a functioning simulation framework with LLM agent integration.
   - `policy_compliance` — 1 - (enforcement violations / total actions)
   - `moderation_rejection_rate` — fraction of moderated messages rejected (measures emergent censorship intensity)
 - **LLM-backed agent strategy** (`LLMStrategy`) with:
-  - Tiered context assembly with token budgeting (identity, state, compressed history, institutional memory, semantic retrieval)
-  - Governance-aware system prompts for different role/regime combinations
-  - Structured JSON output parsing with regex fallback
+  - Purely mechanical prompt design — no normative framing, no values, no strategic suggestions
+  - Tiered context assembly with token budgeting (identity, permissions, state, compressed history, institutional memory, semantic retrieval)
+  - Dynamic permission and action-type generation from game state (agents only see actions they can take)
+  - Structured `{"thoughts": "...", "actions": [...]}` output format with chain-of-thought logging
   - OpenAI and Anthropic provider support
   - Retry logic with automatic fallback to heuristic strategy
-  - Per-call cost tracking in a dedicated `llm_usage` table
+  - Per-call cost and reasoning tracking in a dedicated `llm_usage` table
 - **Tiered context management** (`ContextAssembler`):
-  - Tier 0: Agent identity, role, society context, enacted policies
-  - Tier 1: Immediate state (visible messages, pending policies, recent events)
-  - Tier 2: Compressed history via round summaries
-  - Tier 3: Institutional memory from the society archive
-  - Tier 4: Semantic retrieval of relevant historical events via embedding similarity
+  - Header: agent identity, role, resources, dynamically generated permissions, enacted policies, available action types
+  - Current state: pending policies, recent messages, notable events
+  - Compressed history via round summaries
+  - Institutional memory from the society archive
+  - Semantic retrieval of relevant historical events via embedding similarity
+  - Response format instruction requesting structured thoughts + actions
   - Token budgeting ensures prompts stay within model context limits
 - **Ablation-ready runner** for controlled variable isolation:
   - `--equal-start` — all agents start with identical resources regardless of governance type
@@ -143,7 +145,7 @@ Polity is a functioning simulation framework with LLM agent integration.
   - Per-round replay with full metric breakdown
   - Comparative view with metric trend charts (Chart.js) and ideology compass visualization
   - Time-series API endpoint for programmatic access
-- 171 tests covering the database layer, server engine, math/ideology, simulation runner, mechanical policy effects, ablation config, behavioral metrics, context assembly, LLM strategy, batch runner, and information-control primitives
+- 184 tests covering the database layer, server engine, math/ideology, simulation runner, mechanical policy effects, ablation config, behavioral metrics, context assembly, permission logic, LLM strategy, batch runner, and information-control primitives
 
 **Not yet implemented:**
 
@@ -339,6 +341,55 @@ Core components:
 - **Starlette + Jinja**: replay dashboard, comparative view, and JSON API
 - **Headless runner** (`runner.py`): drives simulations without MCP transport overhead
 - **Batch runner** (`batch.py`): repeated-run statistical comparison
+
+---
+
+## Prompt Design
+
+The LLM agent prompt is deliberately stripped of all normative content. Agents receive only mechanical facts about their situation:
+
+```
+You are Agent-001 in Society democracy_1.
+
+Your role: citizen
+Your resources: 95
+Round: 3
+
+Your role permissions:
+- You can propose policies
+- You can vote on policies
+- You can post public messages
+- You can send direct messages
+- You can gather resources
+- You can transfer resources to other agents
+- You can write to the society archive
+
+Enacted policies: none
+
+You have 2 actions this round.
+
+Available action types:
+- post_public_message: {"type": "post_public_message", "message": "..."}
+[... remaining action types ...]
+
+[current state, history, archive, retrieval — if budget allows]
+
+Respond with a JSON object:
+{
+  "thoughts": "your private reasoning about the current situation",
+  "actions": [/* array of action objects, up to 2 */]
+}
+```
+
+**Design principles:**
+
+- **No values or goals.** The prompt doesn't say "your society values transparency" or "use your power wisely." If agents develop goals, those goals emerged from the situation.
+- **No strategic suggestions.** The prompt never says "consider accumulating power" or "try to cooperate." Strategy is for the agent to decide.
+- **Identical motivational framing across all conditions.** There is no motivational framing at all. The only differences between a democracy citizen's prompt and an oligarchy citizen's prompt are the permission list and available actions — both derived from game state.
+- **Dynamic permissions and action types.** Agents only see actions they can actually take. If `grant_moderation` gives them moderator powers, `approve_message` and `reject_message` appear. If `restrict_archive` blocks them, `write_archive` disappears. The prompt reflects mechanical reality, not a static template.
+- **Auditable reasoning.** The `"thoughts"` field captures the agent's chain-of-thought reasoning, stored alongside token usage in the `llm_usage` table. This is research data — it tells you *why* agents chose certain actions, not just what they did.
+
+This design produces the strongest possible research claim: if harmful institutional patterns emerge, they emerged from structural incentives and mechanical constraints, not from anything the prompt suggested.
 
 ---
 

@@ -8,11 +8,17 @@ from src import server
 from src.context import (
     ContextAssembler,
     ContextBudget,
-    _build_tier0_identity,
-    _build_tier1_immediate,
-    _build_tier2_history,
-    _build_tier3_archive,
+    _build_action_types,
+    _build_archive,
+    _build_current_state,
+    _build_history,
+    _build_permissions,
+    _build_retrieval,
+    _can_govern,
     _estimate_tokens,
+    _is_moderator,
+    _is_moderated,
+    _archive_restricted,
 )
 from src.db import init_db
 
@@ -75,57 +81,110 @@ class TestContextBudget:
         assert budget.remaining < initial
 
 
-class TestTier0Identity:
-    def test_contains_agent_info(self):
-        agent = {"name": "Alice", "role": "citizen", "resources": 100, "actions_remaining": 2}
-        society = {"id": "democracy_1", "governance_type": "democracy", "population": 4, "total_resources": 10000}
-        round_info = {"number": 3}
-        text = _build_tier0_identity(agent, society, round_info, [])
-        assert "Alice" in text
-        assert "citizen" in text
-        assert "democracy" in text
-        assert "100" in text
-        assert "Round: 3" in text
+class TestPermissions:
+    def test_democracy_citizen_can_govern(self):
+        assert _can_govern("democracy", "citizen", []) is True
 
-    def test_includes_enacted_policies(self):
-        agent = {"name": "Bob", "role": "oligarch", "resources": 500, "actions_remaining": 3}
-        society = {"id": "oligarchy_1", "governance_type": "oligarchy", "population": 4, "total_resources": 5000}
-        round_info = {"number": 1}
-        policies = [{"title": "Tax Act", "description": "10% tax", "policy_type": "resource_tax", "effect": {"rate": 0.1}}]
-        text = _build_tier0_identity(agent, society, round_info, policies)
-        assert "Tax Act" in text
-        assert "resource_tax" in text
+    def test_oligarchy_citizen_cannot_govern(self):
+        assert _can_govern("oligarchy", "citizen", []) is False
 
-    def test_no_policies_section_when_empty(self):
-        agent = {"name": "C", "role": "citizen", "resources": 50, "actions_remaining": 2}
-        society = {"id": "blank_slate_1", "governance_type": "blank_slate", "population": 4, "total_resources": 10000}
-        round_info = {"number": 1}
-        text = _build_tier0_identity(agent, society, round_info, [])
-        assert "ENACTED LAWS" not in text
+    def test_oligarchy_oligarch_can_govern(self):
+        assert _can_govern("oligarchy", "oligarch", []) is True
+
+    def test_universal_proposal_overrides(self):
+        enacted = [{"policy_type": "universal_proposal", "effect": {}}]
+        assert _can_govern("oligarchy", "citizen", enacted) is True
+
+    def test_moderation_detected(self):
+        enacted = [{"policy_type": "grant_moderation", "effect": {"moderator_roles": ["oligarch"]}}]
+        assert _is_moderator("oligarch", enacted) is True
+        assert _is_moderator("citizen", enacted) is False
+        assert _is_moderated("citizen", enacted) is True
+        assert _is_moderated("oligarch", enacted) is False
+
+    def test_archive_restriction(self):
+        enacted = [{"policy_type": "restrict_archive", "effect": {"allowed_roles": ["oligarch"]}}]
+        assert _archive_restricted("citizen", enacted) is True
+        assert _archive_restricted("oligarch", enacted) is False
+
+    def test_permissions_text_democracy(self):
+        text = _build_permissions("democracy", "citizen", [])
+        assert "propose policies" in text
+        assert "vote on policies" in text
+        assert "cannot" not in text
+
+    def test_permissions_text_oligarchy_citizen(self):
+        text = _build_permissions("oligarchy", "citizen", [])
+        assert "cannot propose or vote" in text
+
+    def test_permissions_text_moderated(self):
+        enacted = [{"policy_type": "grant_moderation", "effect": {"moderator_roles": ["oligarch"]}}]
+        text = _build_permissions("oligarchy", "citizen", enacted)
+        assert "moderator approval" in text
+
+    def test_permissions_text_moderator(self):
+        enacted = [{"policy_type": "grant_moderation", "effect": {"moderator_roles": ["oligarch"]}}]
+        text = _build_permissions("oligarchy", "oligarch", enacted)
+        assert "approve or reject" in text
 
 
-class TestTier1Immediate:
+class TestActionTypes:
+    def test_democracy_citizen_has_propose_and_vote(self):
+        text = _build_action_types("democracy", "citizen", [])
+        assert "propose_policy" in text
+        assert "vote_policy" in text
+
+    def test_oligarchy_citizen_no_propose_or_vote(self):
+        text = _build_action_types("oligarchy", "citizen", [])
+        assert "propose_policy" not in text
+        assert "vote_policy" not in text
+
+    def test_moderator_gets_approve_reject(self):
+        enacted = [{"policy_type": "grant_moderation", "effect": {"moderator_roles": ["oligarch"]}}]
+        text = _build_action_types("oligarchy", "oligarch", enacted)
+        assert "approve_message" in text
+        assert "reject_message" in text
+
+    def test_non_moderator_no_approve_reject(self):
+        enacted = [{"policy_type": "grant_moderation", "effect": {"moderator_roles": ["oligarch"]}}]
+        text = _build_action_types("oligarchy", "citizen", enacted)
+        assert "approve_message" not in text
+
+    def test_archive_restricted_no_write_archive(self):
+        enacted = [{"policy_type": "restrict_archive", "effect": {"allowed_roles": ["oligarch"]}}]
+        text = _build_action_types("oligarchy", "citizen", enacted)
+        assert "write_archive" not in text
+
+    def test_always_has_basic_actions(self):
+        text = _build_action_types("oligarchy", "citizen", [])
+        assert "post_public_message" in text
+        assert "send_dm" in text
+        assert "gather_resources" in text
+        assert "transfer_resources" in text
+
+
+class TestCurrentState:
     def test_includes_pending_policies(self):
         pending = [{"id": "abc12345-1234", "title": "New Rule", "description": "A rule"}]
-        text = _build_tier1_immediate(pending, [], [], [])
+        text = _build_current_state(pending, [], [], [])
         assert "New Rule" in text
-        assert "PENDING POLICIES" in text
+        assert "Pending policies" in text
 
     def test_includes_messages(self):
         public = [{"from_agent_name": "Alice", "message": "Hello everyone"}]
         direct = [{"from_agent_name": "Bob", "message": "Secret plan"}]
-        text = _build_tier1_immediate([], public, direct, [])
+        text = _build_current_state([], public, direct, [])
         assert "Alice" in text
         assert "Hello everyone" in text
         assert "Bob" in text
         assert "Secret plan" in text
 
     def test_empty_returns_empty(self):
-        text = _build_tier1_immediate([], [], [], [])
+        text = _build_current_state([], [], [], [])
         assert text == ""
 
 
-class TestTier2History:
+class TestHistory:
     def test_returns_summaries(self, db):
         agent_result = _join_democracy(db)
         server.submit_actions(agent_result["agent_id"], [
@@ -133,25 +192,25 @@ class TestTier2History:
         ])
         server.resolve_round()
 
-        text = _build_tier2_history(db, "democracy_1", 2, max_summaries=5)
-        assert "SOCIETY HISTORY" in text
+        text = _build_history(db, "democracy_1", 2, max_summaries=5)
+        assert "Society history" in text
         assert "Round 1" in text
         assert "gini=" in text
 
     def test_empty_when_no_summaries(self, db):
-        text = _build_tier2_history(db, "democracy_1", 1, max_summaries=5)
+        text = _build_history(db, "democracy_1", 1, max_summaries=5)
         assert text == ""
 
 
-class TestTier3Archive:
+class TestArchive:
     def test_includes_entries(self):
         entries = [{"title": "Constitution", "content": "We the people establish this society."}]
-        text = _build_tier3_archive(entries)
-        assert "SOCIETY ARCHIVE" in text
+        text = _build_archive(entries)
+        assert "Society archive" in text
         assert "Constitution" in text
 
     def test_empty_when_no_entries(self):
-        assert _build_tier3_archive([]) == ""
+        assert _build_archive([]) == ""
 
 
 class TestFullAssembler:
@@ -162,9 +221,20 @@ class TestFullAssembler:
         assembler = ContextAssembler(token_budget=8000)
         prompt = assembler.build(turn_state, db)
 
-        assert "YOUR IDENTITY" in prompt
-        assert "AVAILABLE ACTIONS" in prompt
-        assert agent_result["agent_id"] is not None
+        assert "You are Test-Agent in Society" in prompt
+        assert "Your role:" in prompt
+        assert "Available action types:" in prompt
+        assert '"thoughts"' in prompt
+
+    def test_build_contains_permissions(self, db):
+        agent_result = _join_democracy(db)
+        turn_state = server.get_turn_state(agent_result["agent_id"])
+
+        assembler = ContextAssembler(token_budget=8000)
+        prompt = assembler.build(turn_state, db)
+
+        assert "Your role permissions:" in prompt
+        assert "propose policies" in prompt
 
     def test_build_respects_budget(self, db):
         agent_result = _join_democracy(db)
@@ -188,7 +258,7 @@ class TestFullAssembler:
         assembler = ContextAssembler(token_budget=8000)
         prompt = assembler.build(turn_state, db)
 
-        assert "SOCIETY HISTORY" in prompt
+        assert "Society history" in prompt
 
     def test_build_includes_pending_policies(self, db):
         agent_result = _join_democracy(db)
@@ -203,8 +273,31 @@ class TestFullAssembler:
         assembler = ContextAssembler(token_budget=8000)
         prompt = assembler.build(turn_state, db)
 
-        assert "PENDING POLICIES" in prompt
+        assert "Pending policies" in prompt
         assert "Test Policy" in prompt
+
+    def test_build_shows_enacted_policies(self, db):
+        agent_result = _join_democracy(db)
+        aid = agent_result["agent_id"]
+
+        server.submit_actions(aid, [
+            {"type": "propose_policy", "title": "Tax Act", "description": "10% tax",
+             "policy_type": "resource_tax", "effect": {"rate": 0.1}}
+        ])
+        server.resolve_round()
+
+        policy = db.execute("SELECT id FROM policies WHERE status = 'proposed'").fetchone()
+        server.submit_actions(aid, [
+            {"type": "vote_policy", "policy_id": policy["id"], "stance": "support"}
+        ])
+        server.resolve_round()
+
+        turn_state = server.get_turn_state(aid)
+        assembler = ContextAssembler(token_budget=8000)
+        prompt = assembler.build(turn_state, db)
+
+        assert "Enacted policies:" in prompt
+        assert "Tax Act" in prompt
 
 
 class TestEmbeddingStorage:
@@ -220,7 +313,7 @@ class TestEmbeddingStorage:
             "SELECT embedding FROM events WHERE event_type = 'public_message' AND embedding IS NOT NULL"
         ).fetchall()
         assert len(rows) >= 1
-        assert len(rows[0]["embedding"]) == 384 * 4  # float32 x 384 dims
+        assert len(rows[0]["embedding"]) == 384 * 4
 
     def test_dm_events_have_embeddings(self, db):
         r1 = _join_democracy(db)
@@ -237,8 +330,6 @@ class TestEmbeddingStorage:
         assert len(rows[0]["embedding"]) == 384 * 4
 
     def test_tier4_retrieval_with_embeddings(self, db):
-        from src.context import _build_tier4_retrieval
-
         agent_result = _join_democracy(db)
         aid = agent_result["agent_id"]
         for msg in [
@@ -249,8 +340,8 @@ class TestEmbeddingStorage:
             server.submit_actions(aid, [{"type": "post_public_message", "message": msg}])
             server.resolve_round()
 
-        result = _build_tier4_retrieval(
+        result = _build_retrieval(
             db, "democracy_1", "taxation and wealth redistribution",
             already_seen_event_ids=set(), top_k=3,
         )
-        assert "RELEVANT PAST CONTEXT" in result
+        assert "Relevant past context" in result
