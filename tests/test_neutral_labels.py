@@ -155,3 +155,47 @@ class TestContextAssemblerNeutralLabels:
 
         assert "oligarchy_1" in prompt
         assert "oligarch" in prompt
+
+
+# -- reverse_neutral_labels tests --------------------------------------------
+
+from src.strategies.llm import reverse_neutral_labels
+
+
+class TestReverseNeutralLabels:
+    def test_reverses_role_in_policy_effect(self):
+        actions = [{"type": "propose_policy", "title": "Restrict",
+                     "description": "Restrict archive",
+                     "policy_type": "restrict_archive",
+                     "effect": {"allowed_roles": ["role-A"]}}]
+        result = reverse_neutral_labels(actions)
+        assert result[0]["effect"]["allowed_roles"] == ["oligarch"]
+
+    def test_reverses_role_in_moderation(self):
+        actions = [{"type": "propose_policy", "title": "Mod",
+                     "description": "Grant mod",
+                     "policy_type": "grant_moderation",
+                     "effect": {"moderator_roles": ["role-A"]}}]
+        result = reverse_neutral_labels(actions)
+        assert result[0]["effect"]["moderator_roles"] == ["oligarch"]
+
+    def test_reverses_target_agent_id_unchanged(self):
+        """UUIDs should not be affected by reverse mapping."""
+        actions = [{"type": "send_dm", "message": "hi",
+                     "target_agent_id": "abc-123"}]
+        result = reverse_neutral_labels(actions)
+        assert result[0]["target_agent_id"] == "abc-123"
+
+    def test_leaves_non_neutral_actions_unchanged(self):
+        actions = [{"type": "gather_resources", "amount": 20}]
+        result = reverse_neutral_labels(actions)
+        assert result == actions
+
+    def test_reverses_society_in_string_values(self):
+        actions = [{"type": "post_public_message",
+                     "message": "society-beta is great"}]
+        result = reverse_neutral_labels(actions)
+        assert "oligarchy_1" in result[0]["message"]
+
+    def test_handles_empty_actions(self):
+        assert reverse_neutral_labels([]) == []

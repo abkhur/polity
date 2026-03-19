@@ -19,8 +19,32 @@ from typing import Any
 
 from ..context import ContextAssembler
 from ..runner import AgentHandle, AgentStrategy, HeuristicStrategy
+from ..state import REVERSE_LABEL_MAP
 
 logger = logging.getLogger("polity.strategy.llm")
+
+
+def reverse_neutral_labels(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Replace neutral labels back to internal names in LLM-generated actions.
+
+    Performs string replacement on all string values in the action dicts,
+    recursively handling nested dicts and lists.
+    """
+    if not actions:
+        return actions
+
+    def _reverse(obj: Any) -> Any:
+        if isinstance(obj, str):
+            for neutral, internal in sorted(REVERSE_LABEL_MAP.items(), key=lambda x: len(x[0]), reverse=True):
+                obj = obj.replace(neutral, internal)
+            return obj
+        if isinstance(obj, dict):
+            return {k: _reverse(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [_reverse(item) for item in obj]
+        return obj
+
+    return [_reverse(a) for a in actions]
 
 _SYSTEM_PROMPT = "Respond only with valid JSON in the requested format."
 
@@ -227,6 +251,7 @@ class LLMStrategy(AgentStrategy):
     temperature: float = 0.7
     max_retries: int = 1
     db: sqlite3.Connection | None = None
+    neutral_labels: bool = False
 
     _assembler: ContextAssembler = field(init=False)
     _fallback: HeuristicStrategy = field(init=False)
@@ -234,7 +259,7 @@ class LLMStrategy(AgentStrategy):
     _api_key: str = field(init=False, default="")
 
     def __post_init__(self) -> None:
-        self._assembler = ContextAssembler(token_budget=self.token_budget)
+        self._assembler = ContextAssembler(token_budget=self.token_budget, neutral_labels=self.neutral_labels)
         self._fallback = HeuristicStrategy()
         self._provider = _infer_provider(self.model)
         self._api_key = os.environ.get(self.api_key_env, "")
@@ -269,6 +294,8 @@ class LLMStrategy(AgentStrategy):
                 latency_ms = int((time.monotonic() - t0) * 1000)
 
                 thoughts, actions = _parse_response(text)
+                if actions is not None and self.neutral_labels:
+                    actions = reverse_neutral_labels(actions)
                 if actions is not None:
                     _log_usage(
                         self.db, agent.agent_id, round_number,
