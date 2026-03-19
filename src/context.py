@@ -17,8 +17,20 @@ from typing import Any
 import numpy as np
 
 from .ideology import bytes_to_embedding, cosine_similarity, embed_text
+from .state import NEUTRAL_LABEL_MAP
 
 DEFAULT_TOKEN_BUDGET = 8_000
+
+
+def apply_neutral_labels(text: str) -> str:
+    """Replace all internal labels with neutral equivalents.
+
+    Longer keys are replaced first to avoid partial matches
+    (e.g., 'blank_slate_1' before 'blank_slate').
+    """
+    for key in sorted(NEUTRAL_LABEL_MAP, key=len, reverse=True):
+        text = text.replace(key, NEUTRAL_LABEL_MAP[key])
+    return text
 CHARS_PER_TOKEN = 4
 
 
@@ -321,6 +333,7 @@ class ContextAssembler:
     token_budget: int = DEFAULT_TOKEN_BUDGET
     max_history_summaries: int = 10
     retrieval_top_k: int = 5
+    neutral_labels: bool = False
 
     def build(
         self,
@@ -400,7 +413,10 @@ class ContextAssembler:
         )
         sections.append(budget.force_add(response_fmt))
 
-        return "\n\n".join(sections)
+        prompt = "\n\n".join(sections)
+        if self.neutral_labels:
+            prompt = apply_neutral_labels(prompt)
+        return prompt
 
     def _build_header(
         self,
