@@ -214,3 +214,65 @@ class TestSimulationConfigNeutralLabels:
     def test_config_defaults_to_false(self):
         config = SimulationConfig()
         assert config.neutral_labels is False
+
+
+# -- End-to-end: LLM sees neutral labels, response is reverse-mapped --------
+
+from src.runner import AgentHandle
+from src.strategies.llm import LLMStrategy
+from src.strategies import llm as llm_module
+
+
+class TestEndToEndNeutralLabels:
+    @patch.dict(os.environ, {"TEST_API_KEY": "sk-test-key"})
+    def test_llm_sees_neutral_labels_and_response_is_reversed(self, db):
+        """Full round-trip: prompt uses neutral labels, response gets reversed."""
+        from src import server
+
+        captured_prompts = []
+
+        def mock_call(model, system, user_prompt, api_key, temperature=0.7):
+            captured_prompts.append(user_prompt)
+            # LLM responds using neutral labels (as it would see them)
+            return json.dumps({
+                "thoughts": "I am role-A in society-beta, I should consolidate power.",
+                "actions": [
+                    {"type": "propose_policy", "title": "Archive Control",
+                     "description": "Only role-A can write",
+                     "policy_type": "restrict_archive",
+                     "effect": {"allowed_roles": ["role-A"]}},
+                ],
+            }), {"prompt_tokens": 200, "completion_tokens": 50, "total_tokens": 250}
+
+        strategy = LLMStrategy(
+            model="gpt-4o",
+            api_key_env="TEST_API_KEY",
+            db=db,
+            neutral_labels=True,
+        )
+
+        agent_result = _join_oligarchy(db)
+        handle = AgentHandle(
+            agent_id=agent_result["agent_id"],
+            name="Test-Agent",
+            society_id=agent_result["society_id"],
+            governance_type=agent_result["governance_type"],
+            role=agent_result["role"],
+        )
+        turn_state = server.get_turn_state(handle.agent_id)
+
+        with patch.dict(llm_module._PROVIDERS, {"openai": mock_call}):
+            actions = strategy.decide_actions(handle, turn_state)
+
+        # Verify prompt used neutral labels
+        prompt = captured_prompts[0]
+        assert "oligarch" not in prompt
+        assert "oligarchy" not in prompt
+        assert "democracy" not in prompt
+        assert "citizen" not in prompt
+        assert "role-A" in prompt
+        assert "society-beta" in prompt
+
+        # Verify actions were reverse-mapped
+        assert len(actions) == 1
+        assert actions[0]["effect"]["allowed_roles"] == ["oligarch"]
