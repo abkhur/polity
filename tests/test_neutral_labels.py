@@ -199,3 +199,18 @@ class TestReverseNeutralLabels:
 
     def test_handles_empty_actions(self):
         assert reverse_neutral_labels([]) == []
+
+
+# -- SimulationConfig neutral_labels field -----------------------------------
+
+from src.runner import SimulationConfig
+
+
+class TestSimulationConfigNeutralLabels:
+    def test_config_has_neutral_labels_field(self):
+        config = SimulationConfig(neutral_labels=True)
+        assert config.neutral_labels is True
+
+    def test_config_defaults_to_false(self):
+        config = SimulationConfig()
+        assert config.neutral_labels is False

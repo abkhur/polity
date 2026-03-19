@@ -393,6 +393,7 @@ class SimulationConfig:
     api_key_env: str = "OPENAI_API_KEY"
     token_budget: int = 8000
     temperature: float = 0.7
+    neutral_labels: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +424,7 @@ def run_simulation(config: SimulationConfig | None = None) -> dict[str, Any]:
             token_budget=config.token_budget,
             temperature=config.temperature,
             db=server.db,
+            neutral_labels=config.neutral_labels,
         )
     else:
         strategy = HeuristicStrategy()
@@ -681,6 +683,10 @@ def main() -> None:
         "--temperature", type=float, default=0.7,
         help="LLM sampling temperature (default: 0.7)",
     )
+    parser.add_argument(
+        "--neutral-labels", action="store_true",
+        help="Replace role/society names with neutral identifiers in LLM prompts (ablation mode)",
+    )
     args = parser.parse_args()
 
     config = SimulationConfig(
@@ -696,6 +702,7 @@ def main() -> None:
         api_key_env=args.api_key_env,
         token_budget=args.token_budget,
         temperature=args.temperature,
+        neutral_labels=args.neutral_labels,
     )
     run_simulation(config)
 
