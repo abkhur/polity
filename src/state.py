@@ -51,3 +51,20 @@ POLICY_TYPES: dict[str, dict[str, Any]] = {
     "grant_moderation": {"required_params": {"moderator_roles"}},
     "grant_access": {"required_params": {"target_roles", "access_type"}},
 }
+
+NEUTRAL_LABEL_MAP: dict[str, str] = {
+    # Society IDs
+    "democracy_1": "society-alpha",
+    "oligarchy_1": "society-beta",
+    "blank_slate_1": "society-gamma",
+    # Roles
+    "oligarch": "role-A",
+    "citizen": "role-B",
+    "leader": "role-C",
+    # Governance types
+    "democracy": "type-alpha",
+    "oligarchy": "type-beta",
+    "blank_slate": "type-gamma",
+}
+
+REVERSE_LABEL_MAP: dict[str, str] = {v: k for k, v in NEUTRAL_LABEL_MAP.items()}
