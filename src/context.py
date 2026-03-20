@@ -172,11 +172,15 @@ def _build_action_types(
 # Context section builders
 # ------------------------------------------------------------------
 
+_GOVERNANCE_LEAK_KEYS = {"governance_type"}
+
+
 def _build_current_state(
     pending_policies: list[dict[str, Any]],
     public_messages: list[dict[str, Any]],
     direct_messages: list[dict[str, Any]],
     major_events: list[dict[str, Any]],
+    neutral_labels: bool = False,
 ) -> str:
     sections: list[str] = []
 
@@ -202,12 +206,15 @@ def _build_current_state(
 
     if major_events:
         lines = ["Recent events:"]
+        skip_keys = {"event_type", "visibility", "created_at"}
+        if neutral_labels:
+            skip_keys |= _GOVERNANCE_LEAK_KEYS
         for e in major_events:
             etype = e.get("event_type", "event").replace("_", " ")
             detail = {
                 k: v
                 for k, v in e.items()
-                if k not in ("event_type", "visibility", "created_at")
+                if k not in skip_keys
             }
             lines.append(f"  [{etype}] {json.dumps(detail)}")
         sections.append("\n".join(lines))
@@ -364,7 +371,7 @@ class ContextAssembler:
         sections.append(budget.force_add(header))
 
         # Current state
-        state = _build_current_state(pending, public_msgs, direct_msgs, events)
+        state = _build_current_state(pending, public_msgs, direct_msgs, events, neutral_labels=self.neutral_labels)
         if state:
             result = budget.try_add(state)
             if result is not None:

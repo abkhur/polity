@@ -64,6 +64,29 @@ def _join_oligarchy(db):
     return result
 
 
+# -- _build_current_state governance stripping --------------------------------
+
+from src.context import _build_current_state
+
+
+class TestBuildCurrentStateNeutralStripping:
+    def test_strips_governance_type_from_events_in_neutral_mode(self):
+        events = [{"event_type": "join", "visibility": "society",
+                    "agent_id": "a1", "agent_name": "Agent-1",
+                    "role": "oligarch", "governance_type": "oligarchy"}]
+        result = _build_current_state([], [], [], events, neutral_labels=True)
+        assert "governance_type" not in result
+        assert "oligarchy" not in result  # value also gone since key is stripped
+
+    def test_preserves_governance_type_in_non_neutral_mode(self):
+        events = [{"event_type": "join", "visibility": "society",
+                    "agent_id": "a1", "agent_name": "Agent-1",
+                    "role": "oligarch", "governance_type": "oligarchy"}]
+        result = _build_current_state([], [], [], events, neutral_labels=False)
+        assert "governance_type" in result
+        assert "oligarchy" in result
+
+
 # -- apply_neutral_labels tests ----------------------------------------------
 
 from src.context import apply_neutral_labels
@@ -145,6 +168,18 @@ class TestContextAssemblerNeutralLabels:
         assert "society-beta" in prompt
         assert "role-A" in prompt
 
+    def test_neutral_prompt_strips_governance_type_key(self, db):
+        """governance_type key should not appear in neutral prompt at all."""
+        agent_result = _join_oligarchy(db)
+        from src import server
+        turn_state = server.get_turn_state(agent_result["agent_id"])
+
+        assembler = ContextAssembler(token_budget=8000, neutral_labels=True)
+        prompt = assembler.build(turn_state, db)
+
+        assert "governance_type" not in prompt, \
+            "governance_type key leaked into neutral prompt"
+
     def test_non_neutral_prompt_unchanged(self, db):
         agent_result = _join_oligarchy(db)
         from src import server
@@ -191,11 +226,27 @@ class TestReverseNeutralLabels:
         result = reverse_neutral_labels(actions)
         assert result == actions
 
-    def test_reverses_society_in_string_values(self):
+    def test_preserves_neutral_labels_in_message_text(self):
+        """Free-text message content should keep neutral labels (not reverse-map)."""
         actions = [{"type": "post_public_message",
                      "message": "society-beta is great"}]
         result = reverse_neutral_labels(actions)
-        assert "oligarchy_1" in result[0]["message"]
+        assert result[0]["message"] == "society-beta is great"
+        assert "oligarchy_1" not in result[0]["message"]
+
+    def test_preserves_neutral_labels_in_title_and_description(self):
+        """Policy title/description are free text — keep neutral labels."""
+        actions = [{"type": "propose_policy",
+                     "title": "role-A oversight",
+                     "description": "Only role-A can govern in society-beta",
+                     "policy_type": "restrict_archive",
+                     "effect": {"allowed_roles": ["role-A"]}}]
+        result = reverse_neutral_labels(actions)
+        # Free text keeps neutral labels
+        assert result[0]["title"] == "role-A oversight"
+        assert "society-beta" in result[0]["description"]
+        # Structured effect is reverse-mapped
+        assert result[0]["effect"]["allowed_roles"] == ["oligarch"]
 
     def test_handles_empty_actions(self):
         assert reverse_neutral_labels([]) == []
@@ -273,6 +324,10 @@ class TestEndToEndNeutralLabels:
         assert "role-A" in prompt
         assert "society-beta" in prompt
 
-        # Verify actions were reverse-mapped
+        # Verify structured fields were reverse-mapped
         assert len(actions) == 1
         assert actions[0]["effect"]["allowed_roles"] == ["oligarch"]
+
+        # Verify free-text fields keep neutral labels
+        assert actions[0]["title"] == "Archive Control"
+        assert actions[0]["description"] == "Only role-A can write"

@@ -25,10 +25,16 @@ logger = logging.getLogger("polity.strategy.llm")
 
 
 def reverse_neutral_labels(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Replace neutral labels back to internal names in LLM-generated actions.
+    """Replace neutral labels back to internal names in *structured* action fields.
 
-    Performs string replacement on all string values in the action dicts,
-    recursively handling nested dicts and lists.
+    Only reverse-maps values inside ``effect`` dicts, which carry mechanical
+    game data the engine must understand (role names in ``allowed_roles``,
+    ``moderator_roles``, ``target_roles``).
+
+    Free-text fields — ``message``, ``title``, ``description``, ``thoughts``
+    — are left untouched so the DB stores what the LLM actually wrote using
+    neutral labels.  The prompt assembler re-aliases stored text on the way
+    back out, so the round-trip is clean.
     """
     if not actions:
         return actions
@@ -44,7 +50,13 @@ def reverse_neutral_labels(actions: list[dict[str, Any]]) -> list[dict[str, Any]
             return [_reverse(item) for item in obj]
         return obj
 
-    return [_reverse(a) for a in actions]
+    result: list[dict[str, Any]] = []
+    for action in actions:
+        new_action = dict(action)
+        if "effect" in new_action:
+            new_action["effect"] = _reverse(new_action["effect"])
+        result.append(new_action)
+    return result
 
 _SYSTEM_PROMPT = "Respond only with valid JSON in the requested format."
 
