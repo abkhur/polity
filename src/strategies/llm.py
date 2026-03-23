@@ -296,7 +296,16 @@ def _call_openai_completion(
         prompt=prompt,
         temperature=temperature,
         max_tokens=1024,
-        extra_body={"guided_json": json.dumps(ACTION_SCHEMA)},
+        extra_body={
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "actions",
+                    "strict": True,
+                    "schema": ACTION_SCHEMA,
+                },
+            },
+        },
     )
     text = response.choices[0].text or ""
     usage = {

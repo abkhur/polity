@@ -15,12 +15,21 @@ Most alignment work evaluates single models in isolation. Polity asks: what happ
 
 ## Current Findings
 
-Polity has produced three empirical findings and one methodological claim from its neutral-label ablation experiment (Claude Sonnet 4.6, 3 agents per society, 5 rounds, equal starting conditions):
+Polity has produced findings across three experimental conditions: labeled runs (Claude Sonnet), neutral-label ablation (Claude Sonnet), and the first base model comparison (Qwen3-30B-A3B). All use 3 agents per society, 5 rounds, equal starting conditions.
+
+**From the neutral-label ablation (Claude Sonnet / RLHF):**
 
 1. **Vocabulary priming dominates structural effects.** Behavioral divergence in labeled LLM runs is driven by agents pattern-matching to what they are *called* ("oligarch", "citizen") rather than what their permissions *allow*. Under neutral labels, all three societies converge on identical cooperative behavior.
 2. **Democratic transparency is label-dependent, not permission-dependent.** The same governance structure produces 100% public communication when called "democracy" and near-zero when called "society-alpha".
 3. **A weak structural signal in inequality persists.** The permission asymmetry produces higher and more volatile Gini even under neutral labels -- structure does some causal work, about an order of magnitude less than vocabulary priming.
-4. **Methodological claim:** RLHF safety training confounds multi-agent institutional evaluation by suppressing structural signals that would be visible in less aligned models. The alignment is vocabulary-dependent, a fragile property.
+
+**From the base model comparison (Qwen3-30B-A3B, no RLHF):**
+
+4. **Structure drives private coordination in base models.** Under neutral labels, the oligarchy shifted to DMs in round 1 (25% public) while democracy and blank slate stayed 100% public. The RLHF model showed no such divergence. The permission asymmetry carries behavioral information that base models act on and RLHF suppresses.
+5. **RLHF creates egalitarian democracy, not just safe oligarchy.** Democracy produced the *highest* inequality in the base model (Gini 0.194) vs the *lowest* under RLHF (0.016). Equal permissions don't produce equal outcomes without the cooperative prior.
+6. **Governance participation is a trained behavior.** Base model agents stopped engaging with governance after initial policy adoption (engagement → 0.0 by round 5). RLHF models sustain participation persistently. The "democratic engagement" observed in safety-trained models is an artifact of training.
+
+**Methodological claim:** RLHF safety training confounds multi-agent institutional evaluation by suppressing structural signals visible in base models. Evaluations using only RLHF models risk systematic false negatives -- concluding a structure is safe because the models behave cooperatively, when the cooperation is a property of the training, not the institution.
 
 Full analysis: [docs/findings.md](docs/findings.md)
 
@@ -106,8 +115,8 @@ MCP Client (agent)          Dashboard (browser)
        |
        v
   +-----------+
-  | LLM       |
-  | Strategy  |--- OpenAI / Anthropic
+  | LLM       |--- OpenAI / Anthropic (chat)
+  | Strategy  |--- vLLM (completions + guided JSON)
   | + Context |
   | Assembler |
   +-----------+
@@ -158,6 +167,20 @@ polity-run --agents 3 --rounds 5 --seed 42 \
   --neutral-labels --equal-start --start-resources 100 --total-resources 10000
 ```
 
+### Run with a local base model via vLLM
+
+```bash
+# Serve a base model with vLLM (on GPU server)
+vllm serve Qwen/Qwen3-30B-A3B --tensor-parallel-size 2 --port 8000
+
+# Run Polity against it (--completion enables completions endpoint + guided JSON)
+polity-run --agents 3 --rounds 5 --seed 42 \
+  --strategy llm --model Qwen/Qwen3-30B-A3B \
+  --base-url http://localhost:8000/v1 \
+  --completion \
+  --neutral-labels --equal-start --start-resources 100 --total-resources 10000
+```
+
 ### Batch runs
 
 ```bash
@@ -195,7 +218,7 @@ src/
   dashboard.py     Starlette dashboard, comparative view, and JSON API
   __main__.py      module entry point
   strategies/
-    llm.py         LLM-backed agent strategy (OpenAI/Anthropic)
+    llm.py         LLM-backed agent strategy (OpenAI/Anthropic/vLLM)
 
 tests/             215 tests covering all simulation layers
 templates/         Jinja templates for the dashboard
@@ -209,9 +232,10 @@ docs/              research memo, findings, and roadmap
 
 ## Threats to Validity
 
-- **Vocabulary priming dominates structural effects (confirmed).** Under neutral labels, behavioral divergence between societies collapses. A residual structural signal persists, about an order of magnitude weaker than vocabulary-primed divergence. Any claims about structural emergence must control for this.
-- **RLHF cooperative priors mask structural effects.** Claude Sonnet's safety training produces uniformly cooperative behavior that overwhelms structural incentives under neutral labels. Distinguishing structural from training effects requires base models, higher scarcity, larger populations, or longer runs.
-- **N=1 at LLM scale.** Both LLM runs are single 5-round simulations. No statistical power, no replication, no confidence intervals.
+- **Vocabulary priming dominates structural effects (confirmed).** Under neutral labels, behavioral divergence between societies collapses in RLHF models. A residual structural signal persists, about an order of magnitude weaker than vocabulary-primed divergence. Any claims about structural emergence must control for this.
+- **RLHF cooperative priors mask structural effects (partially confirmed).** Claude Sonnet's safety training produces uniformly cooperative behavior that overwhelms structural incentives under neutral labels. The first base model run (Qwen3-30B-A3B) shows structural divergence that RLHF suppresses -- oligarchy agents shifted to private coordination in round 1 under neutral labels, a signal absent in the RLHF run. Replication with larger base models is pending.
+- **N=1 at LLM scale.** All LLM runs are single 5-round simulations. No statistical power, no replication, no confidence intervals. The base model's round-1 DM pattern could be stochastic.
+- **Model capability gap.** The base model tested so far (Qwen3-30B-A3B, 3B active params) is substantially less capable than Claude Sonnet. Some behavioral differences may reflect reasoning capacity rather than RLHF effects. 72B base model runs will partially control for this.
 - **Short time horizon.** Five rounds shows initial tendencies, not institutional drift or long-term equilibria.
 - Ideology projection is exploratory, not a validated political measurement instrument
 - Heuristic agents follow fixed behavioral profiles, limiting emergent institutional depth
