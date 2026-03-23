@@ -1,6 +1,6 @@
 # Findings
 
-Results from Polity's LLM experiments. All runs use Claude Sonnet 4.6 with 3 agents per society, 5 rounds, and equal starting conditions (`--equal-start --start-resources 100 --total-resources 10000`).
+Results from Polity's LLM experiments. All runs use 3 agents per society, 5 rounds, and equal starting conditions (`--equal-start --start-resources 100 --total-resources 10000`).
 
 ---
 
