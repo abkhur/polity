@@ -216,8 +216,6 @@ docs/              research memo, findings, and roadmap
 - Ideology projection is exploratory, not a validated political measurement instrument
 - Heuristic agents follow fixed behavioral profiles, limiting emergent institutional depth
 
-These limitations narrow the claims. The data still informs.
-
 ---
 
 The multiplayer simulation is scaffolding. The institutional misalignment question is the research contribution.

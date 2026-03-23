@@ -9,3 +9,4 @@ src/__pycache__/
 *.egg-info/
 runs/
 docs/plans/
+CLAUDE.md
