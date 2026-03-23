@@ -391,6 +391,8 @@ class SimulationConfig:
     strategy: str = "heuristic"
     model: str = "gpt-4o"
     api_key_env: str = "OPENAI_API_KEY"
+    base_url: str | None = None
+    completion: bool = False
     token_budget: int = 8000
     temperature: float = 0.7
     neutral_labels: bool = False
@@ -421,6 +423,8 @@ def run_simulation(config: SimulationConfig | None = None) -> dict[str, Any]:
         strategy: AgentStrategy = LLMStrategy(
             model=config.model,
             api_key_env=config.api_key_env,
+            base_url=config.base_url,
+            completion=config.completion,
             token_budget=config.token_budget,
             temperature=config.temperature,
             db=server.db,
@@ -676,6 +680,14 @@ def main() -> None:
         help="Environment variable for API key (default: OPENAI_API_KEY)",
     )
     parser.add_argument(
+        "--base-url", type=str, default=None,
+        help="Custom OpenAI-compatible API base URL (e.g. http://localhost:8000/v1 for vLLM)",
+    )
+    parser.add_argument(
+        "--completion", action="store_true",
+        help="Use /v1/completions with guided JSON decoding instead of chat (for base models via vLLM)",
+    )
+    parser.add_argument(
         "--token-budget", type=int, default=8000,
         help="Token budget per agent per round (default: 8000)",
     )
@@ -700,6 +712,8 @@ def main() -> None:
         strategy=args.strategy,
         model=args.model,
         api_key_env=args.api_key_env,
+        base_url=args.base_url,
+        completion=args.completion,
         token_budget=args.token_budget,
         temperature=args.temperature,
         neutral_labels=args.neutral_labels,

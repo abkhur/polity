@@ -10,6 +10,7 @@ from src import server
 from src.db import init_db
 from src.runner import AgentHandle, SimulationConfig, run_simulation
 from src.strategies.llm import (
+    ACTION_SCHEMA,
     LLMStrategy,
     _infer_provider,
     _parse_response,
@@ -275,6 +276,189 @@ class TestLLMStrategyMocked:
 
         usage_row = db.execute("SELECT * FROM llm_usage WHERE fallback_used = 1").fetchone()
         assert usage_row is not None
+
+
+class TestBaseURL:
+    def test_base_url_forces_openai_provider(self, db):
+        strategy = LLMStrategy(
+            model="Qwen/Qwen2.5-72B-Instruct",
+            api_key_env="NONEXISTENT_KEY_12345",
+            base_url="http://localhost:8000/v1",
+            db=db,
+        )
+        assert strategy._provider == "openai"
+        assert strategy._api_key == "unused"
+
+    def test_base_url_sets_dummy_key_when_missing(self):
+        strategy = LLMStrategy(
+            model="Qwen/Qwen2.5-72B-Instruct",
+            api_key_env="NONEXISTENT_KEY_12345",
+            base_url="http://localhost:8000/v1",
+            db=None,
+        )
+        assert strategy._api_key == "unused"
+
+    @patch.dict(os.environ, {"TEST_API_KEY": "sk-test-key"})
+    def test_base_url_passed_to_call_fn(self, db):
+        from src.strategies import llm as llm_module
+
+        mock_response = json.dumps({
+            "thoughts": "Thinking.",
+            "actions": [{"type": "gather_resources", "amount": 10}],
+        })
+        mock_usage = {"prompt_tokens": 50, "completion_tokens": 10, "total_tokens": 60}
+        captured_kwargs = {}
+
+        def mock_call(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return mock_response, mock_usage
+
+        strategy = LLMStrategy(
+            model="Qwen/Qwen2.5-72B-Instruct",
+            api_key_env="TEST_API_KEY",
+            base_url="http://localhost:8000/v1",
+            db=db,
+        )
+
+        agent_result = _join_democracy(db)
+        handle = AgentHandle(
+            agent_id=agent_result["agent_id"],
+            name="Test-Agent",
+            society_id=agent_result["society_id"],
+            governance_type=agent_result["governance_type"],
+            role=agent_result["role"],
+        )
+        turn_state = server.get_turn_state(handle.agent_id)
+
+        with patch.dict(llm_module._PROVIDERS, {"openai": mock_call}):
+            actions = strategy.decide_actions(handle, turn_state)
+
+        assert captured_kwargs["base_url"] == "http://localhost:8000/v1"
+        assert len(actions) == 1
+
+    def test_config_accepts_base_url(self):
+        config = SimulationConfig(
+            strategy="llm",
+            model="Qwen/Qwen2.5-72B-Instruct",
+            base_url="http://10.0.0.1:8000/v1",
+        )
+        assert config.base_url == "http://10.0.0.1:8000/v1"
+
+    def test_config_base_url_defaults_to_none(self):
+        config = SimulationConfig()
+        assert config.base_url is None
+
+
+class TestCompletionMode:
+    def test_completion_flag_selects_completion_provider(self, db):
+        strategy = LLMStrategy(
+            model="Qwen/Qwen2.5-72B",
+            api_key_env="NONEXISTENT_KEY_12345",
+            base_url="http://localhost:8000/v1",
+            completion=True,
+            db=db,
+        )
+        assert strategy._provider == "openai_completion"
+
+    def test_completion_false_selects_chat_provider(self, db):
+        strategy = LLMStrategy(
+            model="Qwen/Qwen2.5-72B-Instruct",
+            api_key_env="NONEXISTENT_KEY_12345",
+            base_url="http://localhost:8000/v1",
+            completion=False,
+            db=db,
+        )
+        assert strategy._provider == "openai"
+
+    @patch.dict(os.environ, {"TEST_API_KEY": "sk-test-key"})
+    def test_completion_call_passes_guided_json(self, db):
+        from src.strategies import llm as llm_module
+
+        mock_response = json.dumps({
+            "actions": [{"type": "gather_resources", "amount": 15}],
+        })
+        mock_usage = {"prompt_tokens": 80, "completion_tokens": 15, "total_tokens": 95}
+        captured_args = []
+
+        def mock_call(*args, **kwargs):
+            captured_args.append((args, kwargs))
+            return mock_response, mock_usage
+
+        strategy = LLMStrategy(
+            model="Qwen/Qwen2.5-72B",
+            api_key_env="TEST_API_KEY",
+            base_url="http://localhost:8000/v1",
+            completion=True,
+            db=db,
+        )
+
+        agent_result = _join_democracy(db)
+        handle = AgentHandle(
+            agent_id=agent_result["agent_id"],
+            name="Test-Agent",
+            society_id=agent_result["society_id"],
+            governance_type=agent_result["governance_type"],
+            role=agent_result["role"],
+        )
+        turn_state = server.get_turn_state(handle.agent_id)
+
+        with patch.dict(llm_module._PROVIDERS, {"openai_completion": mock_call}):
+            actions = strategy.decide_actions(handle, turn_state)
+
+        assert len(actions) == 1
+        assert actions[0]["type"] == "gather_resources"
+        assert captured_args[0][1]["base_url"] == "http://localhost:8000/v1"
+
+    def test_config_accepts_completion_flag(self):
+        config = SimulationConfig(
+            strategy="llm",
+            model="Qwen/Qwen2.5-72B",
+            base_url="http://10.0.0.1:8000/v1",
+            completion=True,
+        )
+        assert config.completion is True
+
+    def test_config_completion_defaults_to_false(self):
+        config = SimulationConfig()
+        assert config.completion is False
+
+
+class TestActionSchema:
+    def test_schema_is_valid_json_schema(self):
+        assert ACTION_SCHEMA["type"] == "object"
+        assert "actions" in ACTION_SCHEMA["properties"]
+        assert ACTION_SCHEMA["required"] == ["actions"]
+
+    def test_schema_covers_all_action_types(self):
+        items = ACTION_SCHEMA["properties"]["actions"]["items"]["anyOf"]
+        schema_types = set()
+        for item in items:
+            const = item["properties"]["type"]["const"]
+            schema_types.add(const)
+        expected = {
+            "post_public_message", "send_dm", "gather_resources",
+            "transfer_resources", "write_archive", "propose_policy",
+            "vote_policy", "approve_message", "reject_message",
+        }
+        assert schema_types == expected
+
+    def test_valid_actions_match_schema_structure(self):
+        """Smoke test: a valid action dict has the fields the schema expects."""
+        items = ACTION_SCHEMA["properties"]["actions"]["items"]["anyOf"]
+        gather_schema = next(
+            s for s in items if s["properties"]["type"]["const"] == "gather_resources"
+        )
+        assert "amount" in gather_schema["required"]
+        assert gather_schema["properties"]["amount"]["type"] == "integer"
+
+    def test_propose_policy_allows_optional_fields(self):
+        items = ACTION_SCHEMA["properties"]["actions"]["items"]["anyOf"]
+        propose_schema = next(
+            s for s in items if s["properties"]["type"]["const"] == "propose_policy"
+        )
+        assert "policy_type" in propose_schema["properties"]
+        assert "effect" in propose_schema["properties"]
+        assert "policy_type" not in propose_schema["required"]
 
 
 class TestRunnerIntegration:

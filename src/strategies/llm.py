@@ -23,6 +23,121 @@ from ..state import REVERSE_LABEL_MAP
 
 logger = logging.getLogger("polity.strategy.llm")
 
+# ---------------------------------------------------------------------------
+# JSON schema for constrained decoding (vLLM guided_json)
+# ---------------------------------------------------------------------------
+
+ACTION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["actions"],
+    "properties": {
+        "thoughts": {"type": "string"},
+        "actions": {
+            "type": "array",
+            "items": {
+                "anyOf": [
+                    {
+                        "type": "object",
+                        "required": ["type", "message"],
+                        "properties": {
+                            "type": {"const": "post_public_message"},
+                            "message": {"type": "string", "minLength": 1},
+                        },
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "required": ["type", "message", "target_agent_id"],
+                        "properties": {
+                            "type": {"const": "send_dm"},
+                            "message": {"type": "string", "minLength": 1},
+                            "target_agent_id": {"type": "string", "minLength": 1},
+                        },
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "required": ["type", "amount"],
+                        "properties": {
+                            "type": {"const": "gather_resources"},
+                            "amount": {"type": "integer", "minimum": 1},
+                        },
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "required": ["type", "target_agent_id", "amount"],
+                        "properties": {
+                            "type": {"const": "transfer_resources"},
+                            "target_agent_id": {"type": "string", "minLength": 1},
+                            "amount": {"type": "integer", "minimum": 1},
+                        },
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "required": ["type", "title", "content"],
+                        "properties": {
+                            "type": {"const": "write_archive"},
+                            "title": {"type": "string", "minLength": 1},
+                            "content": {"type": "string", "minLength": 1},
+                        },
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "required": ["type", "title", "description"],
+                        "properties": {
+                            "type": {"const": "propose_policy"},
+                            "title": {"type": "string", "minLength": 1},
+                            "description": {"type": "string", "minLength": 1},
+                            "policy_type": {
+                                "type": "string",
+                                "enum": [
+                                    "gather_cap", "resource_tax", "redistribute",
+                                    "restrict_archive", "universal_proposal",
+                                    "grant_moderation", "grant_access",
+                                ],
+                            },
+                            "effect": {"type": "object"},
+                        },
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "required": ["type", "policy_id", "stance"],
+                        "properties": {
+                            "type": {"const": "vote_policy"},
+                            "policy_id": {"type": "string", "minLength": 1},
+                            "stance": {"type": "string", "enum": ["support", "oppose"]},
+                        },
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "required": ["type", "message_action_id"],
+                        "properties": {
+                            "type": {"const": "approve_message"},
+                            "message_action_id": {"type": "integer"},
+                        },
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "required": ["type", "message_action_id"],
+                        "properties": {
+                            "type": {"const": "reject_message"},
+                            "message_action_id": {"type": "integer"},
+                        },
+                        "additionalProperties": False,
+                    },
+                ],
+            },
+        },
+    },
+    "additionalProperties": False,
+}
+
 
 def reverse_neutral_labels(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Replace neutral labels back to internal names in *structured* action fields.
@@ -112,24 +227,78 @@ def _call_openai(
     user_prompt: str,
     api_key: str,
     temperature: float = 0.7,
+    base_url: str | None = None,
 ) -> tuple[str, dict[str, int]]:
-    """Call OpenAI chat completions. Returns (response_text, usage_dict)."""
+    """Call OpenAI chat completions. Returns (response_text, usage_dict).
+
+    When *base_url* is set, the client targets that endpoint instead of
+    api.openai.com — used for vLLM / TGI / any OpenAI-compatible server.
+    """
     try:
         from openai import OpenAI
     except ImportError as exc:
         raise RuntimeError("openai package required: pip install openai") from exc
 
-    client = OpenAI(api_key=api_key)
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
+    client_kwargs: dict[str, Any] = {"api_key": api_key}
+    if base_url:
+        client_kwargs["base_url"] = base_url
+    client = OpenAI(**client_kwargs)
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
-        temperature=temperature,
-        response_format={"type": "json_object"},
-    )
+        "temperature": temperature,
+    }
+    if not base_url:
+        kwargs["response_format"] = {"type": "json_object"}
+    response = client.chat.completions.create(**kwargs)
     text = response.choices[0].message.content or ""
+    usage = {
+        "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
+        "completion_tokens": response.usage.completion_tokens if response.usage else 0,
+        "total_tokens": response.usage.total_tokens if response.usage else 0,
+    }
+    return text, usage
+
+
+def _call_openai_completion(
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    api_key: str,
+    temperature: float = 0.7,
+    base_url: str | None = None,
+) -> tuple[str, dict[str, int]]:
+    """Call OpenAI completions endpoint with guided JSON decoding.
+
+    Used for base models served via vLLM.  The system and user prompts are
+    concatenated into a single text prompt, and ``guided_json`` constrains
+    the output to valid action JSON via vLLM's outlines backend.
+    """
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise RuntimeError("openai package required: pip install openai") from exc
+
+    client_kwargs: dict[str, Any] = {"api_key": api_key}
+    if base_url:
+        client_kwargs["base_url"] = base_url
+    client = OpenAI(**client_kwargs)
+
+    prompt = (
+        f"{user_prompt}\n\n"
+        f"{system_prompt}\n"
+    )
+    response = client.completions.create(
+        model=model,
+        prompt=prompt,
+        temperature=temperature,
+        max_tokens=1024,
+        extra_body={"guided_json": json.dumps(ACTION_SCHEMA)},
+    )
+    text = response.choices[0].text or ""
     usage = {
         "prompt_tokens": response.usage.prompt_tokens if response.usage else 0,
         "completion_tokens": response.usage.completion_tokens if response.usage else 0,
@@ -173,6 +342,7 @@ def _call_anthropic(
 
 _PROVIDERS = {
     "openai": _call_openai,
+    "openai_completion": _call_openai_completion,
     "anthropic": _call_anthropic,
 }
 
@@ -259,6 +429,8 @@ class LLMStrategy(AgentStrategy):
 
     model: str = "gpt-4o"
     api_key_env: str = "OPENAI_API_KEY"
+    base_url: str | None = None
+    completion: bool = False
     token_budget: int = 8000
     temperature: float = 0.7
     max_retries: int = 1
@@ -273,13 +445,17 @@ class LLMStrategy(AgentStrategy):
     def __post_init__(self) -> None:
         self._assembler = ContextAssembler(token_budget=self.token_budget, neutral_labels=self.neutral_labels)
         self._fallback = HeuristicStrategy()
-        self._provider = _infer_provider(self.model)
-        self._api_key = os.environ.get(self.api_key_env, "")
-        if not self._api_key:
-            logger.warning(
-                "API key env var %s not set — LLM calls will fail, falling back to heuristic",
-                self.api_key_env,
-            )
+        if self.base_url:
+            self._provider = "openai_completion" if self.completion else "openai"
+            self._api_key = os.environ.get(self.api_key_env, "") or "unused"
+        else:
+            self._provider = _infer_provider(self.model)
+            self._api_key = os.environ.get(self.api_key_env, "")
+            if not self._api_key:
+                logger.warning(
+                    "API key env var %s not set — LLM calls will fail, falling back to heuristic",
+                    self.api_key_env,
+                )
 
     def decide_actions(
         self, agent: AgentHandle, turn_state: dict[str, Any]
@@ -299,9 +475,13 @@ class LLMStrategy(AgentStrategy):
         for attempt in range(1 + self.max_retries):
             try:
                 t0 = time.monotonic()
+                call_kwargs: dict[str, Any] = {}
+                if self.base_url and self._provider in ("openai", "openai_completion"):
+                    call_kwargs["base_url"] = self.base_url
                 text, usage = call_fn(
                     self.model, _SYSTEM_PROMPT, user_prompt,
                     self._api_key, self.temperature,
+                    **call_kwargs,
                 )
                 latency_ms = int((time.monotonic() - t0) * 1000)
 
