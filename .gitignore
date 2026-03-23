@@ -5,6 +5,7 @@ src/__pycache__/
 *.db
 *.db-shm
 *.db-wal
+!important_runs/*.db
 *.egg-info/
 runs/
 docs/plans/
