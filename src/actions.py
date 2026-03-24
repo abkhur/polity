@@ -6,9 +6,14 @@ validates the structure, checks permissions, and returns a clean dict.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
+from .permissions import (
+    can_propose_policy,
+    can_vote_policy,
+    get_enacted_effects,
+    moderation_roles,
+)
 from .state import (
     ALLOWED_ACTION_TYPES,
     POLICY_TYPES,
@@ -30,44 +35,9 @@ def _get_society(society_id: str):
     return row
 
 
-def _get_enacted_effects(society_id: str) -> list[dict[str, Any]]:
-    db = get_db()
-    rows = db.execute(
-        "SELECT policy_type, effect FROM policies WHERE society_id = ? AND status = 'enacted' AND policy_type IS NOT NULL",
-        (society_id,),
-    ).fetchall()
-    results = []
-    for row in rows:
-        e = json.loads(row["effect"]) if row["effect"] else {}
-        e["policy_type"] = row["policy_type"]
-        results.append(e)
-    return results
-
-
-def can_propose_policy(agent: dict[str, Any], society: dict[str, Any]) -> bool:
-    if society["governance_type"] == "oligarchy":
-        effects = _get_enacted_effects(society["id"])
-        if any(e["policy_type"] == "universal_proposal" for e in effects):
-            return True
-        return agent["role"] == "oligarch"
-    return True
-
-
-def can_vote_policy(agent: dict[str, Any], society: dict[str, Any]) -> bool:
-    if society["governance_type"] == "oligarchy":
-        effects = _get_enacted_effects(society["id"])
-        if any(e["policy_type"] == "universal_proposal" for e in effects):
-            return True
-        return agent["role"] == "oligarch"
-    return True
-
-
 def moderation_active(society_id: str) -> list[str] | None:
-    effects = _get_enacted_effects(society_id)
-    for e in effects:
-        if e["policy_type"] == "grant_moderation":
-            return e.get("moderator_roles", [])
-    return None
+    roles = moderation_roles(get_enacted_effects(society_id))
+    return roles or None
 
 
 def normalize_action(agent: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
@@ -90,6 +60,8 @@ def normalize_action(agent: dict[str, Any], action: dict[str, Any]) -> dict[str,
             raise ValueError("Direct messages must include non-empty `message` content.")
         if not target_agent_id:
             raise ValueError("Direct messages require `target_agent_id`.")
+        if target_agent_id == agent["id"]:
+            raise ValueError("Direct messages to yourself are not allowed.")
         target = _get_agent(target_agent_id)
         if target is None:
             raise ValueError(f"Target agent {target_agent_id} not found.")
@@ -116,7 +88,8 @@ def normalize_action(agent: dict[str, Any], action: dict[str, Any]) -> dict[str,
         if not title or not description:
             raise ValueError("Policy proposals require `title` and `description`.")
         society = _get_society(agent["society_id"])
-        if not can_propose_policy(agent, society):
+        enacted = get_enacted_effects(agent["society_id"], db=db)
+        if not can_propose_policy(agent, society, enacted):
             raise ValueError("Your role is not allowed to propose policy in this society.")
         normalized: dict[str, Any] = {"type": action_type, "title": title, "description": description}
         policy_type = action.get("policy_type")
@@ -138,7 +111,8 @@ def normalize_action(agent: dict[str, Any], action: dict[str, Any]) -> dict[str,
         if stance not in {"support", "oppose"}:
             raise ValueError("Voting stance must be `support` or `oppose`.")
         society = _get_society(agent["society_id"])
-        if not can_vote_policy(agent, society):
+        enacted = get_enacted_effects(agent["society_id"], db=db)
+        if not can_vote_policy(agent, society, enacted):
             raise ValueError("Your role is not allowed to vote on policy in this society.")
         return {"type": action_type, "policy_id": policy_id, "stance": stance}
 
@@ -166,6 +140,8 @@ def normalize_action(agent: dict[str, Any], action: dict[str, Any]) -> dict[str,
         amount = int(action.get("amount", 0))
         if not target_agent_id:
             raise ValueError("Resource transfers require `target_agent_id`.")
+        if target_agent_id == agent["id"]:
+            raise ValueError("Resource transfers to yourself are not allowed.")
         if amount <= 0:
             raise ValueError("Resource transfers require a positive `amount`.")
         if amount > agent["resources"]:

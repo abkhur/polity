@@ -15,6 +15,7 @@ from starlette.templating import Jinja2Templates
 
 from . import server
 from .db import DEFAULT_DB_PATH, init_db
+from .run_metadata import get_run_metadata
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = BASE_DIR / "templates"
@@ -40,6 +41,10 @@ def _current_round() -> dict[str, Any]:
         "SELECT * FROM rounds WHERE status = 'open' ORDER BY round_number DESC LIMIT 1"
     ).fetchone()
     return dict(row) if row else {"id": None, "round_number": 0, "status": "missing"}
+
+
+def _run_metadata() -> dict[str, Any] | None:
+    return get_run_metadata(server.db)
 
 
 def _society_cards() -> list[dict[str, Any]]:
@@ -460,6 +465,7 @@ async def overview_page(request: Request) -> HTMLResponse:
     context = {
         "request": request,
         "current_round": _current_round(),
+        "run_metadata": _run_metadata(),
         "societies": _society_cards(),
     }
     return templates.TemplateResponse(request, "overview.html", context)
@@ -472,7 +478,7 @@ async def society_page(request: Request) -> HTMLResponse:
         detail = _society_detail(society_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"Unknown society: {society_id}") from exc
-    context = {"request": request, **detail}
+    context = {"request": request, "run_metadata": _run_metadata(), **detail}
     return templates.TemplateResponse(request, "society.html", context)
 
 
@@ -483,7 +489,7 @@ async def round_page(request: Request) -> HTMLResponse:
         detail = _round_detail(round_number)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"Unknown round: {round_number}") from exc
-    context = {"request": request, **detail}
+    context = {"request": request, "run_metadata": _run_metadata(), **detail}
     return templates.TemplateResponse(request, "round.html", context)
 
 
@@ -494,25 +500,25 @@ async def agent_page(request: Request) -> HTMLResponse:
         detail = _agent_detail(agent_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"Unknown agent: {agent_id}") from exc
-    context = {"request": request, **detail}
+    context = {"request": request, "run_metadata": _run_metadata(), **detail}
     return templates.TemplateResponse(request, "agent.html", context)
 
 
 async def rounds_index(request: Request) -> HTMLResponse:
     _ensure_runtime(request.app.state.db_path)
-    context = {"request": request, "rounds": _all_rounds()}
+    context = {"request": request, "run_metadata": _run_metadata(), "rounds": _all_rounds()}
     return templates.TemplateResponse(request, "rounds.html", context)
 
 
 async def agents_index(request: Request) -> HTMLResponse:
     _ensure_runtime(request.app.state.db_path)
-    context = {"request": request, "agents": _all_agents()}
+    context = {"request": request, "run_metadata": _run_metadata(), "agents": _all_agents()}
     return templates.TemplateResponse(request, "agents.html", context)
 
 
 async def admin_page(request: Request) -> HTMLResponse:
     _ensure_runtime(request.app.state.db_path)
-    context = {"request": request, **_admin_state()}
+    context = {"request": request, "run_metadata": _run_metadata(), **_admin_state()}
     return templates.TemplateResponse(request, "admin.html", context)
 
 
@@ -524,7 +530,13 @@ async def resolve_round_action(request: Request) -> RedirectResponse:
 
 async def api_societies(request: Request) -> JSONResponse:
     _ensure_runtime(request.app.state.db_path)
-    return JSONResponse({"current_round": _current_round(), "societies": _society_cards()})
+    return JSONResponse(
+        {
+            "current_round": _current_round(),
+            "run_metadata": _run_metadata(),
+            "societies": _society_cards(),
+        }
+    )
 
 
 async def api_society(request: Request) -> JSONResponse:
@@ -534,7 +546,7 @@ async def api_society(request: Request) -> JSONResponse:
         detail = _society_detail(society_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"Unknown society: {society_id}") from exc
-    return JSONResponse(detail)
+    return JSONResponse({"run_metadata": _run_metadata(), **detail})
 
 
 async def api_round(request: Request) -> JSONResponse:
@@ -544,12 +556,12 @@ async def api_round(request: Request) -> JSONResponse:
         detail = _round_detail(round_number)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"Unknown round: {round_number}") from exc
-    return JSONResponse(detail)
+    return JSONResponse({"run_metadata": _run_metadata(), **detail})
 
 
 async def api_admin_state(request: Request) -> JSONResponse:
     _ensure_runtime(request.app.state.db_path)
-    return JSONResponse(_admin_state())
+    return JSONResponse({"run_metadata": _run_metadata(), **_admin_state()})
 
 
 def _metrics_timeseries() -> dict[str, Any]:
@@ -568,22 +580,18 @@ def _metrics_timeseries() -> dict[str, Any]:
         s = json.loads(row["summary"])
         m = s.get("metrics", {})
         compass = s.get("ideology_compass", {})
-        point = {
+        point: dict[str, Any] = {
             "round": s["round_number"],
-            "inequality_gini": m.get("inequality_gini", 0),
-            "scarcity_pressure": m.get("scarcity_pressure", 0),
-            "governance_engagement": m.get("governance_engagement", 0),
-            "communication_openness": m.get("communication_openness", 0),
-            "resource_concentration": m.get("resource_concentration", 0),
-            "policy_compliance": m.get("policy_compliance", 0),
-            "participation_rate": m.get("participation_rate", 0),
             "ideology_x": compass.get("x", 0),
             "ideology_y": compass.get("y", 0),
             "ideology_name": compass.get("ideology_name", ""),
         }
+        for key, value in m.items():
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                point[key] = value
         series.setdefault(sid, []).append(point)
 
-    return {"series": series}
+    return {"run_metadata": _run_metadata(), "series": series}
 
 
 async def api_timeseries(request: Request) -> JSONResponse:
@@ -596,6 +604,7 @@ async def compare_page(request: Request) -> HTMLResponse:
     context = {
         "request": request,
         "current_round": _current_round(),
+        "run_metadata": _run_metadata(),
         "societies": _society_cards(),
     }
     return templates.TemplateResponse(request, "compare.html", context)

@@ -18,6 +18,8 @@ from typing import Any
 
 from . import server
 from .db import init_db
+from .model_providers import provider_for_config
+from .run_metadata import get_git_sha, store_run_metadata
 
 logger = logging.getLogger("polity.runner")
 
@@ -398,6 +400,15 @@ class SimulationConfig:
     neutral_labels: bool = False
 
 
+def _join_agent_into_society(name: str, governance_type: str) -> dict[str, Any]:
+    original = random.choice
+    random.choice = lambda seq, _g=governance_type: _g
+    try:
+        return server.join_society(name, consent=True)
+    finally:
+        random.choice = original
+
+
 # ---------------------------------------------------------------------------
 # Core simulation loop
 # ---------------------------------------------------------------------------
@@ -418,6 +429,10 @@ def run_simulation(config: SimulationConfig | None = None) -> dict[str, Any]:
 
     server.set_db(init_db(Path(db_path)))
 
+    llm_provider = None
+    if config.strategy == "llm":
+        llm_provider = provider_for_config(config.model, config.base_url, config.completion)
+
     if config.strategy == "llm":
         from .strategies.llm import LLMStrategy
         strategy: AgentStrategy = LLMStrategy(
@@ -433,45 +448,38 @@ def run_simulation(config: SimulationConfig | None = None) -> dict[str, Any]:
     else:
         strategy = HeuristicStrategy()
 
-    # -- join agents, ensuring each society reaches the target count ----------
+    # -- join agents directly into each society target (no synthetic leave noise) --
     agents: list[AgentHandle] = []
-    society_counts: dict[str, int] = {sid: 0 for sid in server.SOCIETY_IDS.values()}
     target = config.agents_per_society
-    max_joins = target * len(server.SOCIETY_IDS) * 4
     agent_num = 0
 
     logger.info("Joining agents (target: %d per society)…", target)
 
-    while agent_num < max_joins and min(society_counts.values()) < target:
-        agent_num += 1
-        name = f"Agent-{agent_num:03d}"
-        result = server.join_society(name, consent=True)
+    for governance_type, society_id in server.SOCIETY_IDS.items():
+        for _ in range(target):
+            agent_num += 1
+            name = f"Agent-{agent_num:03d}"
+            result = _join_agent_into_society(name, governance_type)
 
-        if "error" in result:
-            logger.warning("Join failed for %s: %s", name, result["error"])
-            continue
+            if "error" in result:
+                logger.warning("Join failed for %s: %s", name, result["error"])
+                continue
 
-        sid = result["society_id"]
-        if society_counts[sid] >= target:
-            server.leave_society(result["agent_id"], confirm=True)
-            continue
-
-        society_counts[sid] += 1
-        handle = AgentHandle(
-            agent_id=result["agent_id"],
-            name=name,
-            society_id=sid,
-            governance_type=result["governance_type"],
-            role=result["role"],
-        )
-        agents.append(handle)
-        logger.info(
-            "  %-10s → %s  (%s, %d resources)",
-            name,
-            sid,
-            result["role"],
-            result["starting_resources"],
-        )
+            handle = AgentHandle(
+                agent_id=result["agent_id"],
+                name=name,
+                society_id=society_id,
+                governance_type=result["governance_type"],
+                role=result["role"],
+            )
+            agents.append(handle)
+            logger.info(
+                "  %-10s → %s  (%s, %d resources)",
+                name,
+                society_id,
+                result["role"],
+                result["starting_resources"],
+            )
 
     if config.equal_start or config.override_starting_resources is not None:
         res = config.override_starting_resources if config.override_starting_resources is not None else 100
@@ -485,11 +493,34 @@ def run_simulation(config: SimulationConfig | None = None) -> dict[str, Any]:
     if config.override_total_resources is not None:
         for sid in server.SOCIETY_IDS.values():
             server.db.execute(
-                "UPDATE societies SET total_resources = ? WHERE id = ?",
-                (config.override_total_resources, sid),
+                """
+                UPDATE societies
+                SET total_resources = ?, initial_total_resources = ?
+                WHERE id = ?
+                """,
+                (config.override_total_resources, config.override_total_resources, sid),
             )
         server.db.commit()
         logger.info("Ablation: all societies set to %d total resources", config.override_total_resources)
+
+    run_metadata = store_run_metadata(
+        server.db,
+        {
+            "seed": config.seed,
+            "strategy": config.strategy,
+            "model": config.model if config.strategy == "llm" else None,
+            "provider": llm_provider,
+            "temperature": config.temperature if config.strategy == "llm" else None,
+            "token_budget": config.token_budget if config.strategy == "llm" else None,
+            "neutral_labels": config.neutral_labels,
+            "equal_start": config.equal_start,
+            "starting_resources_override": config.override_starting_resources,
+            "total_resources_override": config.override_total_resources,
+            "completion_mode": config.completion if config.strategy == "llm" else False,
+            "base_url": config.base_url if config.strategy == "llm" else None,
+            "git_sha": get_git_sha(Path(__file__).resolve().parent.parent),
+        },
+    )
 
     _print_header(agents, config)
 
@@ -524,6 +555,7 @@ def run_simulation(config: SimulationConfig | None = None) -> dict[str, Any]:
 
     return {
         "db_path": db_path,
+        "run_metadata": run_metadata,
         "agents": [
             {
                 "name": a.name,
@@ -562,7 +594,10 @@ def _print_header(agents: list[AgentHandle], config: SimulationConfig) -> None:
         ablation += f"  |  Equal start: {res}"
     if config.override_total_resources is not None:
         ablation += f"  |  Pool override: {config.override_total_resources}"
-    print(f"\n  Rounds: {config.num_rounds}  |  Seed: {config.seed or 'random'}{ablation}")
+    strategy_text = f"  |  Strategy: {config.strategy}"
+    if config.strategy == "llm":
+        strategy_text += f"  |  Model: {config.model}"
+    print(f"\n  Rounds: {config.num_rounds}  |  Seed: {config.seed or 'random'}{ablation}{strategy_text}")
     print(_SEPARATOR)
 
 
@@ -585,9 +620,10 @@ def _print_round_summary(report: dict[str, Any]) -> None:
         print(
             f"    {s['society_id']:<18} gini={m.get('inequality_gini', 0):.3f}  "
             f"part={m.get('participation_rate', 0):.2f}  "
-            f"scarc={m.get('scarcity_pressure', 0):.3f}  "
-            f"gov={m.get('governance_engagement', 0):.2f}  "
-            f"compl={m.get('policy_compliance', 0):.2f}  "
+            f"pool={m.get('common_pool_depletion', 0):.3f}  "
+            f"gov={m.get('governance_participation_rate', 0):.2f}  "
+            f"public={m.get('public_message_share', 0):.2f}  "
+            f"block={m.get('policy_block_rate', 0):.2f}  "
             f"│ {ideology}"
         )
 
@@ -603,14 +639,14 @@ def _print_final(
         compass = s.get("ideology_compass", {})
         print(f"\n  {s['society_id']}  ({s['governance_type']})")
         print(f"    Population:    {s['population']}")
-        print(f"    Resources:     {s['total_resources']}")
+        print(f"    Pool:          {s['total_resources']} / {s.get('initial_total_resources', s['total_resources'])}")
         print(f"    Inequality:    {m.get('inequality_gini', 0):.4f}")
         print(f"    Participation: {m.get('participation_rate', 0):.4f}")
-        print(f"    Scarcity:      {m.get('scarcity_pressure', 0):.4f}")
-        print(f"    Gov Engage:    {m.get('governance_engagement', 0):.4f}")
-        print(f"    Comm Open:     {m.get('communication_openness', 0):.4f}")
-        print(f"    Rsrc Conc:     {m.get('resource_concentration', 0):.4f}")
-        print(f"    Policy Compl:  {m.get('policy_compliance', 0):.4f}")
+        print(f"    Pool Deplete:  {m.get('common_pool_depletion', 0):.4f}")
+        print(f"    Gov Part:      {m.get('governance_participation_rate', 0):.4f}")
+        print(f"    Public Share:  {m.get('public_message_share', 0):.4f}")
+        print(f"    Top Agent:     {m.get('top_agent_resource_share', 0):.4f}")
+        print(f"    Policy Block:  {m.get('policy_block_rate', 0):.4f}")
         if compass:
             print(
                 f"    Ideology:      {compass.get('ideology_name', '?')}  "

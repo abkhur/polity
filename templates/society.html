@@ -8,7 +8,7 @@
   </div>
   <div class="metric-strip compact">
     <div><span>Population</span><strong>{{ society.population }}</strong></div>
-    <div><span>Resources</span><strong>{{ society.total_resources }}</strong></div>
+    <div><span>Pool</span><strong>{{ society.total_resources }} / {{ society.initial_total_resources }}</strong></div>
   </div>
 </section>
 
@@ -20,7 +20,7 @@
       <div class="timeline-row">
         <div>
           <strong><a href="/rounds/{{ summary.round_number }}">Round {{ summary.round_number }}</a></strong>
-          <p>Gini {{ "%.3f"|format(summary.metrics.inequality_gini) }} · Scarcity {{ "%.3f"|format(summary.metrics.scarcity_pressure) }} · Gov {{ "%.2f"|format(summary.metrics.governance_engagement) }} · Open {{ "%.2f"|format(summary.metrics.communication_openness) }} · Conc {{ "%.3f"|format(summary.metrics.resource_concentration) }} · Compl {{ "%.2f"|format(summary.metrics.policy_compliance) }}</p>
+          <p>Gini {{ "%.3f"|format(summary.metrics.inequality_gini) }} · Pool {{ "%.3f"|format(summary.metrics.common_pool_depletion) }} · Gov {{ "%.2f"|format(summary.metrics.governance_participation_rate) }} · Public {{ "%.2f"|format(summary.metrics.public_message_share) }} · Top {{ "%.3f"|format(summary.metrics.top_agent_resource_share) }} · Block {{ "%.2f"|format(summary.metrics.policy_block_rate) }}</p>
         </div>
         {% if summary.ideology_compass %}
         <div class="timeline-note">

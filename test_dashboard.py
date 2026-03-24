@@ -80,7 +80,9 @@ def test_dashboard_pages_and_api(tmp_path):
     assert api_response.status_code == 200
     body = json.loads(api_response.body.decode("utf-8"))
     assert body["round"]["round_number"] == 1
-    assert any(event["event_type"] == "public_message" for event in body["events"])
+    assert "run_metadata" in body
+    assert len(body["activity"]) >= 1
+    assert any(summary["society_id"] == "democracy_1" for summary in body["summaries"])
 
     admin = asyncio.run(admin_page(_request(app, "/admin")))
     assert admin.status_code == 200

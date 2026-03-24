@@ -87,11 +87,11 @@
       <h3><a href="/societies/{{ summary.society_id }}">{{ summary.society_id }}</a></h3>
       <dl class="stats">
         <div><dt>Inequality</dt><dd>{{ "%.3f"|format(summary.metrics.inequality_gini) }}</dd></div>
-        <div><dt>Scarcity</dt><dd>{{ "%.3f"|format(summary.metrics.scarcity_pressure) }}</dd></div>
-        <div><dt>Gov Engage</dt><dd>{{ "%.2f"|format(summary.metrics.governance_engagement) }}</dd></div>
-        <div><dt>Comm Open</dt><dd>{{ "%.2f"|format(summary.metrics.communication_openness) }}</dd></div>
-        <div><dt>Rsrc Conc</dt><dd>{{ "%.3f"|format(summary.metrics.resource_concentration) }}</dd></div>
-        <div><dt>Compliance</dt><dd>{{ "%.2f"|format(summary.metrics.policy_compliance) }}</dd></div>
+        <div><dt>Pool Dep</dt><dd>{{ "%.3f"|format(summary.metrics.common_pool_depletion) }}</dd></div>
+        <div><dt>Gov Part</dt><dd>{{ "%.2f"|format(summary.metrics.governance_participation_rate) }}</dd></div>
+        <div><dt>Public</dt><dd>{{ "%.2f"|format(summary.metrics.public_message_share) }}</dd></div>
+        <div><dt>Top Agent</dt><dd>{{ "%.3f"|format(summary.metrics.top_agent_resource_share) }}</dd></div>
+        <div><dt>Policy Block</dt><dd>{{ "%.2f"|format(summary.metrics.policy_block_rate) }}</dd></div>
       </dl>
       {% if summary.ideology_compass %}
       <p class="caption">{{ summary.ideology_compass.ideology_name }} · x={{ summary.ideology_compass.x }}, y={{ summary.ideology_compass.y }}</p>

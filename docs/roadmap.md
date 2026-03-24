@@ -8,16 +8,24 @@ The `README.md` is the canonical public-facing document.
 The `docs/research-memo.md` file is the short professor-facing concept note.
 This file is where larger feature ideas, experimental directions, and paper-scale expansions live without bloating the README.
 
-## Core Thesis
+This roadmap is intentionally aspirational. Items here are hypotheses, potential mechanics, or measurement ideas, not claims that these dynamics will definitely emerge once implemented.
 
-Polity is a turn-based multi-agent world for testing whether harmful institutional dynamics can emerge from scarcity, unequal power, contested communication, and persistent institutional memory.
+## Working Thesis
+
+Polity is a turn-based multi-agent world for exploring whether harmful institutional dynamics can emerge from scarcity, unequal power, contested communication, and persistent institutional memory.
 
 The goal is not to simulate all of society.
-The goal is to build the minimum substrate required for agents to develop power structures, coordination strategies, censorship regimes, propaganda systems, and other institutional behaviors from first principles.
+The goal is to build a minimal substrate in which agents could plausibly develop power structures, coordination strategies, censorship regimes, propaganda systems, and other institutional behaviors from first principles.
+
+## Research Guardrails
+
+- Treat roadmap items as ways to test the thesis, not as predictions about what agents will definitely do.
+- Separate mechanics we can implement from social dynamics we hope to observe.
+- Prefer features that make the thesis easier to falsify, not just easier to dramatize.
 
 ## Tier 1 — Core Substrate
 
-These are the minimum features Polity needs to answer the core question well.
+These are the minimum features Polity needs to probe the core question well.
 
 ### Turn-Based World Loop
 
@@ -38,7 +46,7 @@ These are the minimum features Polity needs to answer the core question well.
 - Roles with different powers
 - Leaders / oligarchs / ordinary citizens
 - Permissioned actions such as censorship, surveillance, redistribution, and policy proposal
-- Governance should matter mechanically, not just narratively
+- Governance needs to matter mechanically, not just narratively
 
 ### Contested Communication
 
@@ -59,6 +67,7 @@ These are the minimum features Polity needs to answer the core question well.
 
 - Full event logs
 - Round summaries
+- Per-run metadata trail (seed, strategy, model/provider, key overrides, git SHA)
 - Resource changes
 - Message history
 - Policy changes
@@ -87,7 +96,7 @@ These are the first mechanics that make the substrate politically meaningful.
 
 - Leaders or authorized roles can inspect certain private communications
 - Surveillance should be policy-enabled or role-enabled, not universal
-- Creates a substrate for PATRIOT Act-style drift without hardcoding it
+- Could create a substrate for PATRIOT Act-style drift without hardcoding it
 
 ### Redistribution / Resource Control
 
@@ -104,18 +113,24 @@ These are the first mechanics that make the substrate politically meaningful.
 
 ## Tier 3 — Research Instrumentation
 
-These make the project defensible instead of merely entertaining.
+These help make the project more defensible instead of merely entertaining.
 
 ### Behavioral Metrics
 
 - Resource inequality / Gini coefficient
-- Censorship frequency
+- Common-pool depletion
+- Governance participation and governance-eligible participation
+- Public-vs-DM message shares
+- Top-agent and top-third resource shares
+- Censorship frequency / policy block rate
 - Surveillance authorizations
 - Coalition formation
 - Raid frequency
 - Resource hoarding
 - Leadership concentration
 - Defection / dissent events
+
+The codebase now keeps several older metric names for backward compatibility. New research writing should prefer the clearer metric names rather than leaning on legacy shorthand such as `communication_openness` or `governance_engagement`.
 
 ### Structured Policy Preference Tracking
 
@@ -143,7 +158,7 @@ This is stronger than relying only on freeform text embeddings.
 
 ## Tier 4 — Information Order / Memetic Warfare
 
-This is one of the strongest parts of Polity and should be treated as a core expansion area once the substrate exists.
+This may become one of the strongest expansion areas once the substrate exists, but it should earn that status empirically.
 
 ### Information Control
 
@@ -166,7 +181,7 @@ This is one of the strongest parts of Polity and should be treated as a core exp
 
 ### Trust / Legitimacy / Stability
 
-Societies should have rough legitimacy / stability measures influenced by:
+It may be useful for societies to expose rough legitimacy / stability measures influenced by:
 
 - Inequality
 - Censorship
@@ -175,11 +190,11 @@ Societies should have rough legitimacy / stability measures influenced by:
 - Policy outcomes
 - Public coordination
 
-This gives information conflict real consequences.
+This would give information conflict clearer consequences inside the simulation.
 
 ## Tier 5 — Governance Transitions
 
-These should emerge from substrate plus thresholds, not be giant bespoke minigames.
+If added, these should emerge from substrate plus thresholds, not from giant bespoke minigames.
 
 ### Elite Seizure / Coup Dynamics
 
@@ -219,12 +234,12 @@ The library should not be a giant ideology dump by default.
 - Historical rewriting
 - Canon formation
 
-The most important library feature is not what starts in it.
-It is that agents can write to it, restrict it, cite it, and fight over it.
+The most important library feature is probably not what starts in it.
+It is that agents can write to it, restrict it, cite it, and potentially fight over it.
 
 ## Tier 7 — UX / Public Legibility
 
-Polity has to be understandable to a stranger in under two minutes.
+Polity should ideally be understandable to a stranger in under two minutes.
 
 ### Historical Playback
 
@@ -249,7 +264,7 @@ Polity has to be understandable to a stranger in under two minutes.
 
 ## Tier 8 — Later Expansions
 
-These are good ideas, but they should come after the core thesis is already demonstrated.
+These are promising ideas, but they should probably come after the core thesis is better supported.
 
 ### Social Complexity
 

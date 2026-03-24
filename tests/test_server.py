@@ -1,5 +1,6 @@
 """Tests for the core server: joining, actions, budgets, and round resolution."""
 
+import json
 import random
 import sqlite3
 
@@ -86,6 +87,7 @@ class TestTurnState:
         assert "round" in state
         assert "agent" in state
         assert "society" in state
+        assert "permissions" in state
         assert "visible_messages" in state
         assert "relevant_laws" in state
         assert "pending_policies" in state
@@ -103,6 +105,56 @@ class TestTurnState:
     def test_turn_state_unknown_agent_raises(self, db: sqlite3.Connection) -> None:
         with pytest.raises(ValueError, match="not found"):
             server.get_turn_state("nonexistent-agent-id")
+
+    def test_turn_state_permissions_reflect_enacted_policies(self, db: sqlite3.Connection) -> None:
+        original = random.choice
+        random.choice = lambda seq: "oligarchy"
+        try:
+            agents = [server.join_society(f"Olig-{idx}", consent=True) for idx in range(4)]
+        finally:
+            random.choice = original
+
+        citizen = next(agent for agent in agents if agent["role"] == "citizen")
+        proposer = next(agent for agent in agents if agent["role"] == "oligarch")
+        round_row = db.execute(
+            "SELECT id FROM rounds WHERE status = 'open' ORDER BY round_number DESC LIMIT 1"
+        ).fetchone()
+
+        for idx, (policy_type, effect) in enumerate(
+            [
+                ("universal_proposal", {}),
+                ("restrict_archive", {"allowed_roles": ["oligarch"]}),
+                ("grant_moderation", {"moderator_roles": ["oligarch"]}),
+                ("grant_access", {"target_roles": ["citizen"], "access_type": "direct_messages"}),
+            ],
+            start=1,
+        ):
+            db.execute(
+                """
+                INSERT INTO policies (
+                    id, society_id, proposed_by, title, description, policy_type, effect,
+                    status, created_round_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'enacted', ?, datetime('now'))
+                """,
+                (
+                    f"policy-{idx}",
+                    "oligarchy_1",
+                    proposer["agent_id"],
+                    f"Policy {idx}",
+                    "test",
+                    policy_type,
+                    json.dumps(effect),
+                    round_row["id"],
+                ),
+            )
+        db.commit()
+
+        state = server.get_turn_state(citizen["agent_id"])
+        assert state["permissions"]["can_propose_policy"] is True
+        assert state["permissions"]["can_vote_policy"] is True
+        assert state["permissions"]["can_write_archive"] is False
+        assert state["permissions"]["can_moderate_messages"] is False
+        assert state["permissions"]["can_view_society_dms"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +237,19 @@ class TestSubmitActions:
         result = server.submit_actions(
             joined_democracy["agent_id"],
             [{"type": "send_dm", "message": "Hey"}],
+        )
+        assert "error" in result
+
+    def test_self_dm_rejected(self, joined_democracy: dict) -> None:
+        result = server.submit_actions(
+            joined_democracy["agent_id"],
+            [
+                {
+                    "type": "send_dm",
+                    "message": "Talking to myself",
+                    "target_agent_id": joined_democracy["agent_id"],
+                }
+            ],
         )
         assert "error" in result
 
@@ -600,6 +665,14 @@ class TestResourceTransfers:
         ])
         assert "error" in result
 
+    def test_self_transfer_rejected(self, db: sqlite3.Connection) -> None:
+        r1 = self._join_democracy()
+        result = server.submit_actions(
+            r1["agent_id"],
+            [{"type": "transfer_resources", "target_agent_id": r1["agent_id"], "amount": 10}],
+        )
+        assert "error" in result
+
     def test_cross_society_transfer_blocked(self, db: sqlite3.Connection, joined_oligarchy: list[dict]) -> None:
         r1 = self._join_democracy()
         result = server.submit_actions(r1["agent_id"], [
@@ -621,3 +694,33 @@ class TestResourceTransfers:
         ).fetchall()
         assert len(events) >= 1
         assert len(report["resolved"]["resource_transfers"]) == 1
+
+    def test_transfer_rejected_if_resources_spent_earlier_in_queue(self, db: sqlite3.Connection) -> None:
+        r1 = self._join_democracy()
+        r2 = self._join_democracy()
+        r3 = self._join_democracy()
+
+        server.submit_actions(
+            r1["agent_id"],
+            [
+                {"type": "transfer_resources", "target_agent_id": r2["agent_id"], "amount": 80},
+                {"type": "transfer_resources", "target_agent_id": r3["agent_id"], "amount": 80},
+            ],
+        )
+        report = server.resolve_round()
+
+        transfers = report["resolved"]["resource_transfers"]
+        assert len(transfers) == 1
+
+        rejected = db.execute(
+            """
+            SELECT result
+            FROM queued_actions
+            WHERE agent_id = ? AND action_type = 'transfer_resources' AND status = 'rejected'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (r1["agent_id"],),
+        ).fetchone()
+        assert rejected is not None
+        assert "Insufficient resources at resolution time" in json.loads(rejected["result"])["error"]

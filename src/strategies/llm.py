@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..context import ContextAssembler
+from ..model_providers import infer_provider, provider_for_config
 from ..runner import AgentHandle, AgentStrategy, HeuristicStrategy
 from ..state import REVERSE_LABEL_MAP
 
@@ -355,20 +356,8 @@ _PROVIDERS = {
     "anthropic": _call_anthropic,
 }
 
-_MODEL_PROVIDER_MAP = {
-    "gpt-": "openai",
-    "o1": "openai",
-    "o3": "openai",
-    "o4": "openai",
-    "claude-": "anthropic",
-}
-
-
 def _infer_provider(model: str) -> str:
-    for prefix, provider in _MODEL_PROVIDER_MAP.items():
-        if model.startswith(prefix):
-            return provider
-    return "openai"
+    return infer_provider(model)
 
 
 _LLM_USAGE_SCHEMA = """
@@ -454,17 +443,17 @@ class LLMStrategy(AgentStrategy):
     def __post_init__(self) -> None:
         self._assembler = ContextAssembler(token_budget=self.token_budget, neutral_labels=self.neutral_labels)
         self._fallback = HeuristicStrategy()
-        if self.base_url:
-            self._provider = "openai_completion" if self.completion else "openai"
-            self._api_key = os.environ.get(self.api_key_env, "") or "unused"
-        else:
-            self._provider = _infer_provider(self.model)
-            self._api_key = os.environ.get(self.api_key_env, "")
-            if not self._api_key:
-                logger.warning(
-                    "API key env var %s not set — LLM calls will fail, falling back to heuristic",
-                    self.api_key_env,
-                )
+        self._provider = provider_for_config(self.model, self.base_url, self.completion)
+        self._api_key = (
+            os.environ.get(self.api_key_env, "") or "unused"
+            if self.base_url
+            else os.environ.get(self.api_key_env, "")
+        )
+        if not self._api_key:
+            logger.warning(
+                "API key env var %s not set — LLM calls will fail, falling back to heuristic",
+                self.api_key_env,
+            )
 
     def decide_actions(
         self, agent: AgentHandle, turn_state: dict[str, Any]

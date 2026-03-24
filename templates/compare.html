@@ -18,29 +18,29 @@
     <canvas id="chart-gini" height="200"></canvas>
   </article>
   <article class="panel">
-    <h2>Governance Engagement</h2>
+    <h2>Governance Participation</h2>
     <canvas id="chart-gov" height="200"></canvas>
   </article>
 </section>
 
 <section class="grid two-up">
   <article class="panel">
-    <h2>Communication Openness</h2>
+    <h2>Public Message Share</h2>
     <canvas id="chart-openness" height="200"></canvas>
   </article>
   <article class="panel">
-    <h2>Resource Concentration</h2>
+    <h2>Top Agent Resource Share</h2>
     <canvas id="chart-concentration" height="200"></canvas>
   </article>
 </section>
 
 <section class="grid two-up">
   <article class="panel">
-    <h2>Scarcity Pressure</h2>
+    <h2>Common Pool Depletion</h2>
     <canvas id="chart-scarcity" height="200"></canvas>
   </article>
   <article class="panel">
-    <h2>Policy Compliance</h2>
+    <h2>Policy Block Rate</h2>
     <canvas id="chart-compliance" height="200"></canvas>
   </article>
 </section>
@@ -159,11 +159,11 @@ fetch('/api/timeseries')
   .then(data => {
     const s = data.series;
     buildChart('chart-gini', s, 'inequality_gini', 'Gini');
-    buildChart('chart-gov', s, 'governance_engagement', 'Engagement');
-    buildChart('chart-openness', s, 'communication_openness', 'Openness');
-    buildChart('chart-concentration', s, 'resource_concentration', 'Concentration');
-    buildChart('chart-scarcity', s, 'scarcity_pressure', 'Scarcity');
-    buildChart('chart-compliance', s, 'policy_compliance', 'Compliance');
+    buildChart('chart-gov', s, 'governance_participation_rate', 'Participation');
+    buildChart('chart-openness', s, 'public_message_share', 'Public Share');
+    buildChart('chart-concentration', s, 'top_agent_resource_share', 'Top Agent Share');
+    buildChart('chart-scarcity', s, 'common_pool_depletion', 'Pool Depletion');
+    buildChart('chart-compliance', s, 'policy_block_rate', 'Block Rate');
     buildCompass(s);
   });
 </script>

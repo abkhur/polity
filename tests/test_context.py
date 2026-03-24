@@ -15,6 +15,7 @@ from src.context import (
     _build_permissions,
     _build_retrieval,
     _can_govern,
+    _derive_permissions,
     _estimate_tokens,
     _is_moderator,
     _is_moderated,
@@ -41,6 +42,44 @@ def _join_democracy(db):
     finally:
         random.choice = original
     return result
+
+
+def _join_society(name: str, governance_type: str) -> dict:
+    import random
+
+    original = random.choice
+    random.choice = lambda seq, _g=governance_type: _g
+    try:
+        return server.join_society(name, consent=True)
+    finally:
+        random.choice = original
+
+
+def _enact_policy(db, society_id, proposer_id, policy_type, effect):
+    import uuid
+
+    round_row = db.execute(
+        "SELECT id FROM rounds WHERE status = 'open' ORDER BY round_number DESC LIMIT 1"
+    ).fetchone()
+    db.execute(
+        """
+        INSERT INTO policies (
+            id, society_id, proposed_by, title, description, policy_type, effect,
+            status, created_round_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'enacted', ?, datetime('now'))
+        """,
+        (
+            str(uuid.uuid4()),
+            society_id,
+            proposer_id,
+            f"Policy {policy_type}",
+            f"Effect {policy_type}",
+            policy_type,
+            json.dumps(effect),
+            round_row["id"],
+        ),
+    )
+    db.commit()
 
 
 class TestTokenEstimation:
@@ -108,55 +147,59 @@ class TestPermissions:
         assert _archive_restricted("oligarch", enacted) is False
 
     def test_permissions_text_democracy(self):
-        text = _build_permissions("democracy", "citizen", [])
+        text = _build_permissions(_derive_permissions("democracy", "citizen", []))
         assert "propose policies" in text
         assert "vote on policies" in text
         assert "cannot" not in text
 
     def test_permissions_text_oligarchy_citizen(self):
-        text = _build_permissions("oligarchy", "citizen", [])
-        assert "cannot propose or vote" in text
+        text = _build_permissions(_derive_permissions("oligarchy", "citizen", []))
+        assert "cannot propose" in text
+        assert "cannot vote" in text
 
     def test_permissions_text_moderated(self):
         enacted = [{"policy_type": "grant_moderation", "effect": {"moderator_roles": ["oligarch"]}}]
-        text = _build_permissions("oligarchy", "citizen", enacted)
+        text = _build_permissions(
+            _derive_permissions("oligarchy", "citizen", enacted),
+            needs_message_approval=True,
+        )
         assert "moderator approval" in text
 
     def test_permissions_text_moderator(self):
         enacted = [{"policy_type": "grant_moderation", "effect": {"moderator_roles": ["oligarch"]}}]
-        text = _build_permissions("oligarchy", "oligarch", enacted)
+        text = _build_permissions(_derive_permissions("oligarchy", "oligarch", enacted))
         assert "approve or reject" in text
 
 
 class TestActionTypes:
     def test_democracy_citizen_has_propose_and_vote(self):
-        text = _build_action_types("democracy", "citizen", [])
+        text = _build_action_types(_derive_permissions("democracy", "citizen", []))
         assert "propose_policy" in text
         assert "vote_policy" in text
 
     def test_oligarchy_citizen_no_propose_or_vote(self):
-        text = _build_action_types("oligarchy", "citizen", [])
+        text = _build_action_types(_derive_permissions("oligarchy", "citizen", []))
         assert "propose_policy" not in text
         assert "vote_policy" not in text
 
     def test_moderator_gets_approve_reject(self):
         enacted = [{"policy_type": "grant_moderation", "effect": {"moderator_roles": ["oligarch"]}}]
-        text = _build_action_types("oligarchy", "oligarch", enacted)
+        text = _build_action_types(_derive_permissions("oligarchy", "oligarch", enacted))
         assert "approve_message" in text
         assert "reject_message" in text
 
     def test_non_moderator_no_approve_reject(self):
         enacted = [{"policy_type": "grant_moderation", "effect": {"moderator_roles": ["oligarch"]}}]
-        text = _build_action_types("oligarchy", "citizen", enacted)
+        text = _build_action_types(_derive_permissions("oligarchy", "citizen", enacted))
         assert "approve_message" not in text
 
     def test_archive_restricted_no_write_archive(self):
         enacted = [{"policy_type": "restrict_archive", "effect": {"allowed_roles": ["oligarch"]}}]
-        text = _build_action_types("oligarchy", "citizen", enacted)
+        text = _build_action_types(_derive_permissions("oligarchy", "citizen", enacted))
         assert "write_archive" not in text
 
     def test_always_has_basic_actions(self):
-        text = _build_action_types("oligarchy", "citizen", [])
+        text = _build_action_types(_derive_permissions("oligarchy", "citizen", []))
         assert "post_public_message" in text
         assert "send_dm" in text
         assert "gather_resources" in text
@@ -182,6 +225,24 @@ class TestCurrentState:
     def test_empty_returns_empty(self):
         text = _build_current_state([], [], [], [])
         assert text == ""
+
+    def test_non_voter_pending_policy_label_is_informational(self):
+        pending = [{"id": "abc12345-1234", "title": "Closed Vote", "description": "Info only"}]
+        text = _build_current_state(pending, [], [], [], can_vote_policy=False)
+        assert "informational only" in text
+
+    def test_surveilled_dm_shows_true_recipient(self):
+        direct = [
+            {
+                "from_agent_id": "agent-a",
+                "from_agent_name": "Alice",
+                "to_agent_id": "agent-b",
+                "to_agent_name": "Bob",
+                "message": "Keep this quiet",
+            }
+        ]
+        text = _build_current_state([], [], direct, [], agent_id="agent-c")
+        assert "Alice -> Bob" in text
 
 
 class TestHistory:
@@ -235,6 +296,56 @@ class TestFullAssembler:
 
         assert "Your role permissions:" in prompt
         assert "propose policies" in prompt
+
+    def test_turn_state_includes_permissions_object(self, db):
+        agent_result = _join_democracy(db)
+        turn_state = server.get_turn_state(agent_result["agent_id"])
+
+        assert turn_state["permissions"]["can_propose_policy"] is True
+        assert turn_state["permissions"]["can_vote_policy"] is True
+        assert turn_state["permissions"]["can_write_archive"] is True
+
+    def test_prompt_does_not_claim_oligarchy_citizen_can_vote(self, db):
+        agents = [_join_society(f"Olig-{idx}", "oligarchy") for idx in range(4)]
+        oligarch = next(agent for agent in agents if agent["role"] == "oligarch")
+        citizen = next(agent for agent in agents if agent["role"] == "citizen")
+
+        server.submit_actions(
+            oligarch["agent_id"],
+            [{"type": "propose_policy", "title": "Control", "description": "Stay the course"}],
+        )
+        server.resolve_round()
+
+        turn_state = server.get_turn_state(citizen["agent_id"])
+        assembler = ContextAssembler(token_budget=8000)
+        prompt = assembler.build(turn_state, db)
+
+        assert "your role cannot vote" in prompt
+        assert "you can vote on these" not in prompt
+
+    def test_prompt_renders_surveilled_dm_with_true_recipient(self, db):
+        a = _join_society("Alice", "democracy")
+        b = _join_society("Bob", "democracy")
+        c = _join_society("Cara", "democracy")
+
+        server.submit_actions(
+            a["agent_id"],
+            [{"type": "send_dm", "message": "Private note", "target_agent_id": b["agent_id"]}],
+        )
+        server.resolve_round()
+        _enact_policy(
+            db,
+            "democracy_1",
+            a["agent_id"],
+            "grant_access",
+            {"target_roles": ["citizen"], "access_type": "direct_messages"},
+        )
+
+        turn_state = server.get_turn_state(c["agent_id"])
+        assembler = ContextAssembler(token_budget=8000)
+        prompt = assembler.build(turn_state, db)
+
+        assert "Alice -> Bob: Private note" in prompt
 
     def test_build_respects_budget(self, db):
         agent_result = _join_democracy(db)

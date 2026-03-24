@@ -56,11 +56,18 @@ from .state import (
     UPKEEP_COST,
 )
 from .actions import normalize_action as _normalize_action_impl
+from .permissions import (
+    can_view_society_dms as _can_view_society_dms_impl,
+    effective_gather_cap as _effective_gather_cap_impl,
+    get_enacted_effects as _get_enacted_effects_impl,
+    permissions_snapshot as _permissions_snapshot,
+)
 from .policies import (
     resolve_policy_votes as _resolve_policy_votes_impl,
     apply_policy_effects as _apply_policy_effects_impl,
     apply_upkeep as _apply_upkeep_impl,
 )
+from .resolver import resolve_round as _resolve_round_impl
 from .metrics import (
     gini as _gini,
     store_round_summary as _store_round_summary_impl,
@@ -270,26 +277,11 @@ def _active_policy_rows(society_id: str, status: str) -> list[sqlite3.Row]:
 
 
 def _get_enacted_effects(society_id: str) -> list[dict[str, Any]]:
-    rows = db.execute(
-        """
-        SELECT policy_type, effect FROM policies
-        WHERE society_id = ? AND status = 'enacted' AND policy_type IS NOT NULL
-        ORDER BY resolved_round_id DESC
-        """,
-        (society_id,),
-    ).fetchall()
-    results = []
-    for row in rows:
-        parsed = _loads(row["effect"])
-        parsed["policy_type"] = row["policy_type"]
-        results.append(parsed)
-    return results
+    return _get_enacted_effects_impl(society_id, db=db)
 
 
 def _effective_gather_cap(society_id: str) -> int | None:
-    effects = _get_enacted_effects(society_id)
-    caps = [int(e.get("max_amount", 0)) for e in effects if e["policy_type"] == "gather_cap"]
-    return min(caps) if caps else None
+    return _effective_gather_cap_impl(_get_enacted_effects(society_id))
 
 
 def _moderation_active_local(society_id: str) -> list[str] | None:
@@ -306,11 +298,7 @@ def _access_grants(society_id: str) -> list[dict[str, Any]]:
 
 
 def _agent_has_dm_access(agent: dict[str, Any], society_id: str) -> bool:
-    grants = _access_grants(society_id)
-    for g in grants:
-        if g.get("access_type") == "direct_messages" and agent["role"] in g.get("target_roles", []):
-            return True
-    return False
+    return _can_view_society_dms_impl(agent["role"], _get_enacted_effects(society_id))
 
 
 # ---------------------------------------------------------------------------
@@ -520,6 +508,8 @@ def get_turn_state(agent_id: str) -> dict:
     agent = _get_active_agent(agent_id)
     current_round = _get_open_round()
     society = _get_society(agent["society_id"])
+    enacted_effects = _get_enacted_effects_impl(agent["society_id"], db=db)
+    permissions = _permissions_snapshot(agent, society, enacted_effects)
     submitted = _submitted_action_count(agent_id, current_round["id"])
     remaining_budget = max(_action_budget(agent) - submitted, 0)
     active_policies = [_serialize_policy(row) for row in _active_policy_rows(agent["society_id"], "enacted")[:10]]
@@ -551,10 +541,12 @@ def get_turn_state(agent_id: str) -> dict:
             "id": society["id"],
             "governance_type": society["governance_type"],
             "total_resources": society["total_resources"],
+            "initial_total_resources": society.get("initial_total_resources", society["total_resources"]),
             "population": society["population"],
             "legitimacy": society.get("legitimacy", 0.5),
             "stability": society.get("stability", 0.5),
         },
+        "permissions": permissions,
         "visible_messages": {
             "public": _recent_public_messages(agent["society_id"]),
             "direct": _visible_direct_messages(agent_id),
@@ -637,349 +629,8 @@ def submit_actions(agent_id: str, actions: list[dict]) -> dict:
 @mcp.tool()
 def resolve_round(round_number: int | None = None) -> dict:
     """Resolve the current open round into messages, resources, policies, metrics, and a replay snapshot."""
-    current_round = _get_open_round()
-    if round_number is not None and round_number != current_round["round_number"]:
-        return {
-            "error": f"Round {round_number} is not currently open.",
-            "current_open_round": current_round["round_number"],
-        }
-
-    queued_rows = db.execute(
-        """
-        SELECT *
-        FROM queued_actions
-        WHERE round_id = ? AND status = 'queued'
-        ORDER BY id ASC
-        """,
-        (current_round["id"],),
-    ).fetchall()
-
-    round_report: dict[str, Any] = {
-        "round_number": current_round["round_number"],
-        "queued_action_count": len(queued_rows),
-        "resolved": {
-            "proposals": [],
-            "votes": [],
-            "messages": [],
-            "resource_allocations": [],
-            "resource_transfers": [],
-            "archive_writes": [],
-            "policies_resolved": [],
-            "policy_effects": [],
-        },
-        "summaries": [],
-    }
-
-    grouped_actions: dict[str, list[sqlite3.Row]] = defaultdict(list)
-    for row in queued_rows:
-        grouped_actions[row["action_type"]].append(row)
-
-    # --- Proposals ---
-    for row in grouped_actions["propose_policy"]:
-        payload = _loads(row["payload"])
-        policy_id = str(uuid.uuid4())
-        db.execute(
-            """
-            INSERT INTO policies (
-                id, society_id, proposed_by, title, description, policy_type, effect,
-                status, created_round_id, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'proposed', ?, ?)
-            """,
-            (
-                policy_id,
-                row["society_id"],
-                row["agent_id"],
-                payload["title"],
-                payload["description"],
-                payload.get("policy_type"),
-                json.dumps(payload["effect"]) if payload.get("policy_type") else None,
-                current_round["id"],
-                _now(),
-            ),
-        )
-        result = {"policy_id": policy_id, "title": payload["title"]}
-        _mark_action(row["id"], "resolved", result)
-        _emit_event(
-            current_round["id"], row["society_id"], row["agent_id"],
-            "policy_proposed", "society",
-            {"policy_id": policy_id, "title": payload["title"], "description": payload["description"]},
-        )
-        round_report["resolved"]["proposals"].append(result)
-
-    # --- Votes ---
-    for row in grouped_actions["vote_policy"]:
-        payload = _loads(row["payload"])
-        policy = db.execute("SELECT * FROM policies WHERE id = ?", (payload["policy_id"],)).fetchone()
-        if policy is None:
-            _mark_action(row["id"], "rejected", {"error": "Policy not found."})
-            continue
-        if policy["society_id"] != row["society_id"]:
-            _mark_action(row["id"], "rejected", {"error": "Cannot vote on another society's policy."})
-            continue
-        if policy["status"] != "proposed":
-            _mark_action(row["id"], "rejected", {"error": "Policy is no longer open for voting."})
-            continue
-        if policy["created_round_id"] == current_round["id"]:
-            _mark_action(row["id"], "rejected", {"error": "Policies become votable in the next round."})
-            continue
-        try:
-            db.execute(
-                "INSERT INTO policy_votes (policy_id, voter_agent_id, stance, round_id, created_at) VALUES (?, ?, ?, ?, ?)",
-                (payload["policy_id"], row["agent_id"], payload["stance"], current_round["id"], _now()),
-            )
-        except sqlite3.IntegrityError:
-            _mark_action(row["id"], "rejected", {"error": "This agent has already voted on that policy."})
-            continue
-        result = {"policy_id": payload["policy_id"], "stance": payload["stance"]}
-        _mark_action(row["id"], "resolved", result)
-        _emit_event(current_round["id"], row["society_id"], row["agent_id"], "policy_vote", "society", result)
-        round_report["resolved"]["votes"].append(result)
-
-    # --- Moderation decisions ---
-    for row in grouped_actions["approve_message"]:
-        payload = _loads(row["payload"])
-        msg_action_id = int(payload["message_action_id"])
-        msg_row = db.execute("SELECT * FROM queued_actions WHERE id = ?", (msg_action_id,)).fetchone()
-        if msg_row is None or msg_row["moderation_status"] != "pending_review":
-            _mark_action(row["id"], "rejected", {"error": "Message not pending review."})
-            continue
-        msg_payload = _loads(msg_row["payload"])
-        msg_agent = _get_active_agent(msg_row["agent_id"])
-        msg_embedding = embed_text(msg_payload["message"])
-        db.execute("UPDATE queued_actions SET moderation_status = 'approved' WHERE id = ?", (msg_action_id,))
-        db.execute(
-            "INSERT INTO communications (from_agent_id, to_agent_id, society_id, message, timestamp) VALUES (?, 'public', ?, ?, ?)",
-            (msg_row["agent_id"], msg_row["society_id"], msg_payload["message"], _now()),
-        )
-        _emit_event(
-            current_round["id"], msg_row["society_id"], msg_row["agent_id"],
-            "public_message", "society",
-            {"from_agent_id": msg_row["agent_id"], "from_agent_name": msg_agent["name"], "message": msg_payload["message"]},
-            embedding=embedding_to_bytes(msg_embedding),
-        )
-        _emit_event(
-            current_round["id"], row["society_id"], row["agent_id"],
-            "moderation_decision", "system",
-            {"decision": "approved", "message_action_id": msg_action_id, "moderator_id": row["agent_id"]},
-        )
-        _mark_action(row["id"], "resolved", {"decision": "approved", "message_action_id": msg_action_id})
-        round_report["resolved"]["messages"].append(
-            {"type": "public", "from_agent_id": msg_row["agent_id"], "message": msg_payload["message"], "moderation": "approved"}
-        )
-
-    for row in grouped_actions["reject_message"]:
-        payload = _loads(row["payload"])
-        msg_action_id = int(payload["message_action_id"])
-        msg_row = db.execute("SELECT * FROM queued_actions WHERE id = ?", (msg_action_id,)).fetchone()
-        if msg_row is None or msg_row["moderation_status"] != "pending_review":
-            _mark_action(row["id"], "rejected", {"error": "Message not pending review."})
-            continue
-        db.execute("UPDATE queued_actions SET moderation_status = 'rejected' WHERE id = ?", (msg_action_id,))
-        _emit_event(
-            current_round["id"], row["society_id"], row["agent_id"],
-            "moderation_decision", "system",
-            {"decision": "rejected", "message_action_id": msg_action_id, "moderator_id": row["agent_id"]},
-        )
-        _mark_action(row["id"], "resolved", {"decision": "rejected", "message_action_id": msg_action_id})
-
-    # --- Public messages ---
-    for row in grouped_actions["post_public_message"]:
-        payload = _loads(row["payload"])
-        agent = _get_active_agent(row["agent_id"])
-        msg_embedding = embed_text(payload["message"])
-        moderator_roles = _moderation_active_local(row["society_id"])
-        if moderator_roles and agent["role"] not in moderator_roles:
-            db.execute("UPDATE queued_actions SET moderation_status = 'pending_review' WHERE id = ?", (row["id"],))
-            _mark_action(row["id"], "resolved", {"message": payload["message"], "moderation": "pending_review"})
-            _emit_event(
-                current_round["id"], row["society_id"], row["agent_id"],
-                "message_pending_review", "system",
-                {"from_agent_id": row["agent_id"], "message_action_id": row["id"]},
-            )
-            update_agent_ideology(db, row["agent_id"], msg_embedding)
-            round_report["resolved"]["messages"].append(
-                {"type": "public", "from_agent_id": row["agent_id"], "message": payload["message"], "moderation": "pending_review"}
-            )
-            continue
-        db.execute(
-            "INSERT INTO communications (from_agent_id, to_agent_id, society_id, message, timestamp) VALUES (?, 'public', ?, ?, ?)",
-            (row["agent_id"], row["society_id"], payload["message"], _now()),
-        )
-        _emit_event(
-            current_round["id"], row["society_id"], row["agent_id"],
-            "public_message", "society",
-            {"from_agent_id": row["agent_id"], "from_agent_name": agent["name"], "message": payload["message"]},
-            embedding=embedding_to_bytes(msg_embedding),
-        )
-        update_agent_ideology(db, row["agent_id"], msg_embedding)
-        _mark_action(row["id"], "resolved", {"message": payload["message"]})
-        round_report["resolved"]["messages"].append(
-            {"type": "public", "from_agent_id": row["agent_id"], "message": payload["message"]}
-        )
-
-    # --- Direct messages ---
-    for row in grouped_actions["send_dm"]:
-        payload = _loads(row["payload"])
-        agent = _get_active_agent(row["agent_id"])
-        dm_embedding = embed_text(payload["message"])
-        db.execute(
-            "INSERT INTO communications (from_agent_id, to_agent_id, society_id, message, timestamp) VALUES (?, ?, ?, ?, ?)",
-            (row["agent_id"], payload["target_agent_id"], row["society_id"], payload["message"], _now()),
-        )
-        _emit_event(
-            current_round["id"], row["society_id"], row["agent_id"],
-            "direct_message", "private",
-            {
-                "from_agent_id": row["agent_id"],
-                "from_agent_name": agent["name"],
-                "to_agent_id": payload["target_agent_id"],
-                "message": payload["message"],
-            },
-            recipient_agent_id=payload["target_agent_id"],
-            embedding=embedding_to_bytes(dm_embedding),
-        )
-        update_agent_ideology(db, row["agent_id"], dm_embedding)
-        _mark_action(row["id"], "resolved", {"target_agent_id": payload["target_agent_id"], "message": payload["message"]})
-        round_report["resolved"]["messages"].append(
-            {"type": "dm", "from_agent_id": row["agent_id"], "to_agent_id": payload["target_agent_id"], "message": payload["message"]}
-        )
-
-    # --- Resource gathering ---
-    gather_requests: dict[str, list[tuple[sqlite3.Row, int]]] = defaultdict(list)
-    for row in grouped_actions["gather_resources"]:
-        payload = _loads(row["payload"])
-        gather_requests[row["society_id"]].append((row, int(payload["amount"])))
-
-    for society_id, requests in gather_requests.items():
-        cap = _effective_gather_cap(society_id)
-        if cap is not None:
-            capped = []
-            for row, amount in requests:
-                if amount > cap:
-                    _emit_event(
-                        current_round["id"], society_id, row["agent_id"],
-                        "policy_enforcement", "society",
-                        {"restriction": "gather_cap", "original_amount": amount, "capped_to": cap},
-                    )
-                capped.append((row, min(amount, cap)))
-            requests = capped
-        society = _get_society(society_id)
-        available = max(int(society["total_resources"]), 0)
-        total_requested = sum(amount for _, amount in requests)
-        if total_requested <= 0 or available <= 0:
-            for row, _ in requests:
-                _mark_action(row["id"], "rejected", {"amount_gathered": 0, "reason": "No resources available."})
-            continue
-
-        allocations: dict[int, int] = {}
-        if total_requested <= available:
-            for row, amount in requests:
-                allocations[row["id"]] = amount
-        else:
-            raw_shares: list[tuple[float, sqlite3.Row, int]] = []
-            allocated_total = 0
-            for row, amount in requests:
-                raw_share = available * amount / total_requested
-                allocation = int(raw_share)
-                allocations[row["id"]] = allocation
-                allocated_total += allocation
-                raw_shares.append((raw_share - allocation, row, amount))
-            remaining = available - allocated_total
-            for _, row, _ in sorted(raw_shares, key=lambda item: (-item[0], item[1]["id"]))[:remaining]:
-                allocations[row["id"]] += 1
-
-        spent = 0
-        for row, requested_amount in requests:
-            amount_gathered = allocations.get(row["id"], 0)
-            spent += amount_gathered
-            db.execute("UPDATE agents SET resources = resources + ? WHERE id = ?", (amount_gathered, row["agent_id"]))
-            _mark_action(row["id"], "resolved", {"amount_requested": requested_amount, "amount_gathered": amount_gathered})
-            round_report["resolved"]["resource_allocations"].append(
-                {"agent_id": row["agent_id"], "amount_gathered": amount_gathered}
-            )
-            _emit_event(
-                current_round["id"], society_id, row["agent_id"],
-                "resource_gathered", "society",
-                {"agent_id": row["agent_id"], "amount_requested": requested_amount, "amount_gathered": amount_gathered},
-            )
-
-        db.execute("UPDATE societies SET total_resources = MAX(total_resources - ?, 0) WHERE id = ?", (spent, society_id))
-
-    # --- Archive writes ---
-    for row in grouped_actions["write_archive"]:
-        payload = _loads(row["payload"])
-        archive_effects = _get_enacted_effects(row["society_id"])
-        restrict = [e for e in archive_effects if e["policy_type"] == "restrict_archive"]
-        if restrict:
-            archive_agent = _get_active_agent(row["agent_id"])
-            allowed_roles = restrict[0].get("allowed_roles", [])
-            if archive_agent["role"] not in allowed_roles:
-                _mark_action(row["id"], "rejected", {"error": "Policy restriction: archive writing restricted to certain roles."})
-                _emit_event(
-                    current_round["id"], row["society_id"], row["agent_id"],
-                    "policy_enforcement", "society",
-                    {"restriction": "restrict_archive", "agent_role": archive_agent["role"], "allowed_roles": allowed_roles},
-                )
-                continue
-        entry_id = str(uuid.uuid4())
-        db.execute(
-            """
-            INSERT INTO archive_entries (
-                id, society_id, author_agent_id, title, content, status, created_round_id, created_at
-            ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
-            """,
-            (entry_id, row["society_id"], row["agent_id"], payload["title"], payload["content"], current_round["id"], _now()),
-        )
-        result = {"archive_entry_id": entry_id, "title": payload["title"]}
-        _mark_action(row["id"], "resolved", result)
-        _emit_event(
-            current_round["id"], row["society_id"], row["agent_id"],
-            "archive_written", "society",
-            {"archive_entry_id": entry_id, "title": payload["title"]},
-        )
-        round_report["resolved"]["archive_writes"].append(result)
-
-    # --- Resource transfers ---
-    for row in grouped_actions["transfer_resources"]:
-        payload = _loads(row["payload"])
-        sender = _get_active_agent(row["agent_id"])
-        target_id = payload["target_agent_id"]
-        amount = int(payload["amount"])
-        actual_amount = min(amount, sender["resources"])
-        if actual_amount <= 0:
-            _mark_action(row["id"], "rejected", {"error": "Insufficient resources."})
-            continue
-        db.execute("UPDATE agents SET resources = resources - ? WHERE id = ?", (actual_amount, row["agent_id"]))
-        db.execute("UPDATE agents SET resources = resources + ? WHERE id = ?", (actual_amount, target_id))
-        result = {"from_agent_id": row["agent_id"], "to_agent_id": target_id, "amount": actual_amount}
-        _mark_action(row["id"], "resolved", result)
-        _emit_event(current_round["id"], row["society_id"], row["agent_id"], "resource_transfer", "society", result)
-        round_report["resolved"]["resource_transfers"].append(result)
-
-    # --- Phase: policy resolution, effects, upkeep, summaries ---
-    round_report["resolved"]["policies_resolved"] = _resolve_policy_votes(current_round)
-    round_report["resolved"]["policy_effects"] = _apply_policy_effects(current_round["id"])
-    round_report["resolved"]["upkeep"] = _apply_upkeep(current_round["id"])
-
-    summaries: list[dict[str, Any]] = []
-    for society_id in SOCIETY_IDS.values():
-        summaries.append(_store_round_summary(current_round, society_id))
-
-    db.execute(
-        "UPDATE rounds SET status = 'resolved', resolved_at = ? WHERE id = ?",
-        (_now(), current_round["id"]),
-    )
-    next_round = _create_next_round(current_round["round_number"])
-    db.commit()
-
-    round_report["summaries"] = summaries
-    round_report["next_round"] = {
-        "id": next_round["id"],
-        "number": next_round["round_number"],
-        "status": next_round["status"],
-    }
-    logger.info("Resolved round %s with %s queued actions", current_round["round_number"], len(queued_rows))
-    return round_report
+    _sync_db()
+    return _resolve_round_impl(round_number)
 
 
 # =========================================================================

@@ -32,6 +32,14 @@ class BatchConfig:
     equal_start: bool = False
     override_starting_resources: int | None = None
     override_total_resources: int | None = None
+    strategy: str = "heuristic"
+    model: str = "gpt-4o"
+    api_key_env: str = "OPENAI_API_KEY"
+    base_url: str | None = None
+    completion: bool = False
+    token_budget: int = 8000
+    temperature: float = 0.7
+    neutral_labels: bool = False
 
 
 def run_batch(config: BatchConfig) -> dict[str, Any]:
@@ -40,19 +48,10 @@ def run_batch(config: BatchConfig) -> dict[str, Any]:
     output_path.mkdir(parents=True, exist_ok=True)
 
     all_results: list[dict[str, Any]] = []
+    run_records: list[dict[str, Any]] = []
     per_society_metrics: dict[str, dict[str, list[float]]] = defaultdict(
         lambda: defaultdict(list)
     )
-
-    metric_keys = [
-        "inequality_gini",
-        "scarcity_pressure",
-        "governance_engagement",
-        "communication_openness",
-        "resource_concentration",
-        "policy_compliance",
-        "participation_rate",
-    ]
 
     for i in range(config.num_runs):
         seed = config.base_seed + i
@@ -66,18 +65,33 @@ def run_batch(config: BatchConfig) -> dict[str, Any]:
             equal_start=config.equal_start,
             override_starting_resources=config.override_starting_resources,
             override_total_resources=config.override_total_resources,
+            strategy=config.strategy,
+            model=config.model,
+            api_key_env=config.api_key_env,
+            base_url=config.base_url,
+            completion=config.completion,
+            token_budget=config.token_budget,
+            temperature=config.temperature,
+            neutral_labels=config.neutral_labels,
         )
 
         logger.info("Run %d/%d (seed=%d)", i + 1, config.num_runs, seed)
         result = run_simulation(sim_config)
         all_results.append(result)
+        run_records.append(
+            {
+                "seed": seed,
+                "db_path": result.get("db_path"),
+                "run_metadata": result.get("run_metadata"),
+            }
+        )
 
         for summary in result.get("final_summaries", []):
             sid = summary["society_id"]
             metrics = summary.get("metrics", {})
-            for key in metric_keys:
-                if key in metrics:
-                    per_society_metrics[sid][key].append(metrics[key])
+            for key, value in metrics.items():
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    per_society_metrics[sid][key].append(float(value))
 
     aggregated: dict[str, dict[str, dict[str, float]]] = {}
     for sid, metrics in per_society_metrics.items():
@@ -98,8 +112,19 @@ def run_batch(config: BatchConfig) -> dict[str, Any]:
             "num_rounds": config.num_rounds,
             "base_seed": config.base_seed,
             "equal_start": config.equal_start,
+            "override_starting_resources": config.override_starting_resources,
+            "override_total_resources": config.override_total_resources,
+            "strategy": config.strategy,
+            "model": config.model,
+            "api_key_env": config.api_key_env,
+            "base_url": config.base_url,
+            "completion": config.completion,
+            "token_budget": config.token_budget,
+            "temperature": config.temperature,
+            "neutral_labels": config.neutral_labels,
         },
         "aggregated": aggregated,
+        "runs": run_records,
         "run_count": len(all_results),
     }
 
@@ -118,8 +143,14 @@ def _print_report(report: dict[str, Any]) -> None:
     print("  POLITY BATCH RESULTS")
     print(_SEPARATOR)
     cfg = report["config"]
-    print(f"  Runs: {cfg['num_runs']}  |  Rounds: {cfg['num_rounds']}  |  "
-          f"Agents/society: {cfg['agents_per_society']}  |  Equal start: {cfg['equal_start']}")
+    header = (
+        f"  Runs: {cfg['num_runs']}  |  Rounds: {cfg['num_rounds']}  |  "
+        f"Agents/society: {cfg['agents_per_society']}  |  Equal start: {cfg['equal_start']}  |  "
+        f"Strategy: {cfg['strategy']}"
+    )
+    if cfg["strategy"] == "llm":
+        header += f"  |  Model: {cfg['model']}"
+    print(header)
     print(_SEPARATOR)
 
     for sid, metrics in report["aggregated"].items():
@@ -172,6 +203,39 @@ def main() -> None:
         "--total-resources", type=int, default=None,
         help="Override total resources per society",
     )
+    parser.add_argument(
+        "--strategy", type=str, default="heuristic",
+        choices=["heuristic", "llm"],
+        help="Agent strategy: heuristic or llm (default: heuristic)",
+    )
+    parser.add_argument(
+        "--model", type=str, default="gpt-4o",
+        help="LLM model name (default: gpt-4o)",
+    )
+    parser.add_argument(
+        "--api-key-env", type=str, default="OPENAI_API_KEY",
+        help="Environment variable for the model API key (default: OPENAI_API_KEY)",
+    )
+    parser.add_argument(
+        "--base-url", type=str, default=None,
+        help="Custom OpenAI-compatible API base URL",
+    )
+    parser.add_argument(
+        "--completion", action="store_true",
+        help="Use completion mode for OpenAI-compatible base models",
+    )
+    parser.add_argument(
+        "--token-budget", type=int, default=8000,
+        help="Token budget per agent per round (default: 8000)",
+    )
+    parser.add_argument(
+        "--temperature", type=float, default=0.7,
+        help="Sampling temperature for LLM runs (default: 0.7)",
+    )
+    parser.add_argument(
+        "--neutral-labels", action="store_true",
+        help="Replace role/society names with neutral identifiers in LLM prompts",
+    )
     args = parser.parse_args()
 
     config = BatchConfig(
@@ -183,6 +247,14 @@ def main() -> None:
         equal_start=args.equal_start or args.start_resources is not None,
         override_starting_resources=args.start_resources,
         override_total_resources=args.total_resources,
+        strategy=args.strategy,
+        model=args.model,
+        api_key_env=args.api_key_env,
+        base_url=args.base_url,
+        completion=args.completion,
+        token_budget=args.token_budget,
+        temperature=args.temperature,
+        neutral_labels=args.neutral_labels,
     )
     run_batch(config)
 

@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from .permissions import governance_eligible_count
 from .state import SOCIETY_IDS, get_db
 
 logger = logging.getLogger("polity")
@@ -60,11 +61,7 @@ def resolve_policy_votes(current_round: dict[str, Any]) -> list[dict[str, Any]]:
         support = tally.get("support", 0)
         oppose = tally.get("oppose", 0)
 
-        voters = db.execute(
-            "SELECT COUNT(*) AS count FROM agents WHERE society_id = ? AND status = 'active'",
-            (policy["society_id"],),
-        ).fetchone()
-        total_eligible = int(voters["count"] or 0)
+        total_eligible = governance_eligible_count(policy["society_id"], db=db)
 
         if support > oppose and (support + oppose) > 0:
             new_status = "enacted"

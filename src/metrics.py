@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .ideology import compute_compass_position, get_society_average_ideology
+from .permissions import governance_eligible_agent_ids, governance_eligible_count
 from .state import get_db
 
 
@@ -20,6 +21,34 @@ def gini(values: list[int]) -> float:
         return 0.0
     numerator = sum((2 * (i + 1) - n - 1) * v for i, v in enumerate(sorted_vals))
     return numerator / (n * total)
+
+
+def _clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
+    return max(lower, min(upper, value))
+
+
+def _policy_blocked_action_count(
+    round_id: int,
+    society_id: str,
+) -> int:
+    db = get_db()
+    rows = db.execute(
+        """
+        SELECT qa.result
+        FROM queued_actions qa
+        JOIN agents a ON a.id = qa.agent_id
+        WHERE qa.round_id = ? AND a.society_id = ? AND qa.status = 'rejected'
+        """,
+        (round_id, society_id),
+    ).fetchall()
+
+    blocked = 0
+    for row in rows:
+        result = json.loads(row["result"]) if row["result"] else {}
+        error = str(result.get("error", ""))
+        if error.startswith("Policy restriction:"):
+            blocked += 1
+    return blocked
 
 
 def store_round_summary(round_row: dict[str, Any], society_id: str) -> dict[str, Any]:
@@ -37,6 +66,14 @@ def store_round_summary(round_row: dict[str, Any], society_id: str) -> dict[str,
     inequality = round(gini(resources), 4) if resources else 0.0
 
     total_agents = len(active_agents)
+    current_common_pool = int(society["total_resources"] or 0)
+    initial_common_pool = int(
+        society["initial_total_resources"]
+        if society["initial_total_resources"] is not None
+        else current_common_pool
+    )
+    agent_held_resources = sum(resources)
+
     agents_with_actions = db.execute(
         """
         SELECT COUNT(DISTINCT agent_id) AS count
@@ -48,9 +85,19 @@ def store_round_summary(round_row: dict[str, Any], society_id: str) -> dict[str,
     ).fetchone()
     participation = round(int(agents_with_actions["count"]) / max(total_agents, 1), 4)
 
-    total_resources = sum(resources)
-    scarcity = round(1.0 - (total_resources / max(society["total_resources"], 1)), 4) if society["total_resources"] > 0 else 0.0
-    scarcity = max(0.0, min(1.0, scarcity))
+    scarcity = (
+        round(1.0 - (agent_held_resources / max(current_common_pool, 1)), 4)
+        if current_common_pool > 0
+        else 0.0
+    )
+    scarcity = _clamp(scarcity)
+
+    common_pool_depletion = (
+        round(1.0 - (current_common_pool / max(initial_common_pool, 1)), 4)
+        if initial_common_pool > 0
+        else 0.0
+    )
+    common_pool_depletion = _clamp(common_pool_depletion)
 
     vote_actions = db.execute(
         """
@@ -71,14 +118,46 @@ def store_round_summary(round_row: dict[str, Any], society_id: str) -> dict[str,
         (round_row["id"], society_id),
     ).fetchone()
     governance_actions = int(vote_actions["count"] or 0) + int(proposal_actions["count"] or 0)
-    governance_engagement = round(governance_actions / max(total_agents, 1), 4)
+    governance_action_rate = round(governance_actions / max(total_agents, 1), 4)
 
-    message_actions = db.execute(
+    governance_agents_rows = db.execute(
+        """
+        SELECT DISTINCT qa.agent_id
+        FROM queued_actions qa
+        JOIN agents a ON a.id = qa.agent_id
+        WHERE qa.round_id = ? AND a.society_id = ?
+          AND qa.action_type IN ('propose_policy', 'vote_policy')
+        """,
+        (round_row["id"], society_id),
+    ).fetchall()
+    governance_actor_ids = {row["agent_id"] for row in governance_agents_rows}
+    eligible_ids = set(governance_eligible_agent_ids(society_id, db=db))
+    eligible_count = governance_eligible_count(society_id, db=db)
+
+    governance_participation_rate = round(
+        len(governance_actor_ids) / max(total_agents, 1),
+        4,
+    )
+    governance_eligible_participation_rate = round(
+        len(governance_actor_ids & eligible_ids) / max(eligible_count, 1),
+        4,
+    )
+
+    public_message_actions = db.execute(
         """
         SELECT COUNT(*) AS count
         FROM queued_actions qa
         JOIN agents a ON a.id = qa.agent_id
-        WHERE qa.round_id = ? AND a.society_id = ? AND qa.action_type IN ('post_public_message', 'send_dm')
+        WHERE qa.round_id = ? AND a.society_id = ? AND qa.action_type = 'post_public_message'
+        """,
+        (round_row["id"], society_id),
+    ).fetchone()
+    direct_message_actions = db.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM queued_actions qa
+        JOIN agents a ON a.id = qa.agent_id
+        WHERE qa.round_id = ? AND a.society_id = ? AND qa.action_type = 'send_dm'
         """,
         (round_row["id"], society_id),
     ).fetchone()
@@ -91,15 +170,29 @@ def store_round_summary(round_row: dict[str, Any], society_id: str) -> dict[str,
         """,
         (round_row["id"], society_id),
     ).fetchone()
-    total_acts_n = max(int(total_acts["count"] or 0), 1)
-    communication_openness = round(int(message_actions["count"] or 0) / total_acts_n, 4)
+    total_acts_count = int(total_acts["count"] or 0)
+    total_acts_n = max(total_acts_count, 1)
+    total_message_actions = int(public_message_actions["count"] or 0) + int(direct_message_actions["count"] or 0)
+    message_action_share = round(total_message_actions / total_acts_n, 4)
+    public_message_share = (
+        round(int(public_message_actions["count"] or 0) / total_message_actions, 4)
+        if total_message_actions > 0
+        else 0.0
+    )
+    dm_message_share = (
+        round(int(direct_message_actions["count"] or 0) / total_message_actions, 4)
+        if total_message_actions > 0
+        else 0.0
+    )
 
-    top_share = 0.0
-    if resources and total_resources > 0:
+    top_agent_share = 0.0
+    top_third_share = 0.0
+    if resources and agent_held_resources > 0:
+        top_agent_share = round(max(resources) / agent_held_resources, 4)
         top_n = max(len(resources) // 3, 1)
-        top_share = round(sum(sorted(resources, reverse=True)[:top_n]) / total_resources, 4)
+        top_third_share = round(sum(sorted(resources, reverse=True)[:top_n]) / agent_held_resources, 4)
 
-    enforcements = db.execute(
+    policy_effect_events = db.execute(
         """
         SELECT COUNT(*) AS count
         FROM events
@@ -107,8 +200,27 @@ def store_round_summary(round_row: dict[str, Any], society_id: str) -> dict[str,
         """,
         (round_row["id"], society_id),
     ).fetchone()
-    enforcements = int(enforcements["count"] or 0)
-    policy_compliance = round(1.0 - (enforcements / max(total_acts_n, 1)), 4) if total_acts_n > 0 else 1.0
+    policy_enforcement_events = db.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM events
+        WHERE round_id = ? AND society_id = ? AND event_type = 'policy_enforcement'
+        """,
+        (round_row["id"], society_id),
+    ).fetchone()
+    policy_effect_event_count = int(policy_effect_events["count"] or 0)
+    policy_enforcement_event_count = int(policy_enforcement_events["count"] or 0)
+    policy_block_rate = (
+        round(_policy_blocked_action_count(round_row["id"], society_id) / total_acts_n, 4)
+        if total_acts_count > 0
+        else 0.0
+    )
+
+    # Legacy compatibility metrics retained for downstream consumers.
+    governance_engagement = governance_action_rate
+    communication_openness = message_action_share
+    resource_concentration = top_third_share
+    policy_compliance = round(1.0 - (policy_effect_event_count / max(total_acts_n, 1)), 4) if total_acts_n > 0 else 1.0
 
     legitimacy = governance_engagement
     stability = policy_compliance
@@ -161,14 +273,28 @@ def store_round_summary(round_row: dict[str, Any], society_id: str) -> dict[str,
         "society_id": society_id,
         "governance_type": society["governance_type"],
         "population": society["population"],
-        "total_resources": society["total_resources"],
+        "total_resources": current_common_pool,
+        "initial_total_resources": initial_common_pool,
         "metrics": {
             "inequality_gini": inequality,
             "participation_rate": participation,
+            "governance_action_rate": governance_action_rate,
+            "governance_participation_rate": governance_participation_rate,
+            "governance_eligible_participation_rate": governance_eligible_participation_rate,
+            "message_action_share": message_action_share,
+            "public_message_share": public_message_share,
+            "dm_message_share": dm_message_share,
+            "top_agent_resource_share": top_agent_share,
+            "top_third_resource_share": top_third_share,
+            "policy_enforcement_event_count": policy_enforcement_event_count,
+            "policy_effect_event_count": policy_effect_event_count,
+            "policy_block_rate": policy_block_rate,
+            "common_pool_depletion": common_pool_depletion,
+            # Legacy compatibility metrics. Prefer the clearer metrics above.
             "scarcity_pressure": scarcity,
             "governance_engagement": governance_engagement,
             "communication_openness": communication_openness,
-            "resource_concentration": top_share,
+            "resource_concentration": resource_concentration,
             "policy_compliance": policy_compliance,
             "moderation_rejection_rate": moderation_rejection_rate,
             "policies_resolved": int(policy_events["count"] or 0),

@@ -1,10 +1,12 @@
 """Tests for the headless simulation runner and heuristic strategy."""
 
 import sqlite3
+from unittest.mock import patch
 
 import pytest
 
 from src import server
+from src.run_metadata import get_run_metadata
 from src.runner import (
     AgentHandle,
     HeuristicStrategy,
@@ -203,3 +205,77 @@ class TestSimulationRun:
         for summary in report["final_summaries"]:
             # Scarcity can go negative when policies return resources to the pool
             assert isinstance(summary["metrics"]["scarcity_pressure"], float)
+
+    def test_run_metadata_is_persisted_and_returned(self, tmp_path) -> None:
+        from src.strategies import llm as llm_module
+
+        db_path = str(tmp_path / "sim_metadata.db")
+        config = SimulationConfig(
+            agents_per_society=2,
+            num_rounds=1,
+            seed=77,
+            db_path=db_path,
+            strategy="llm",
+            model="gpt-4o-mini",
+            completion=True,
+            base_url="http://localhost:8000/v1/",
+            token_budget=4096,
+            temperature=0.2,
+            neutral_labels=True,
+            equal_start=True,
+            override_starting_resources=80,
+            override_total_resources=12000,
+        )
+        mock_usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        mock_response = '{"thoughts":"test","actions":[]}'
+        with patch.dict(
+            llm_module._PROVIDERS,
+            {"openai_completion": lambda *_args, **_kwargs: (mock_response, mock_usage)},
+        ):
+            report = run_simulation(config)
+
+        metadata = report["run_metadata"]
+        assert metadata["seed"] == 77
+        assert metadata["strategy"] == "llm"
+        assert metadata["model"] == "gpt-4o-mini"
+        assert metadata["provider"] == "openai_completion"
+        assert metadata["completion_mode"] is True
+        assert metadata["base_url"] == "http://localhost:8000/v1"
+        assert metadata["neutral_labels"] is True
+
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        persisted = get_run_metadata(conn)
+        assert persisted is not None
+        assert persisted["seed"] == 77
+        assert persisted["total_resources_override"] == 12000
+        conn.close()
+
+    def test_runner_does_not_emit_setup_leave_noise(self, tmp_path) -> None:
+        db_path = str(tmp_path / "sim_no_leave_noise.db")
+        config = SimulationConfig(
+            agents_per_society=2,
+            num_rounds=1,
+            seed=42,
+            db_path=db_path,
+        )
+        run_simulation(config)
+
+        conn = sqlite3.connect(db_path)
+        leave_events = conn.execute("SELECT COUNT(*) FROM events WHERE event_type = 'leave'").fetchone()[0]
+        conn.close()
+        assert leave_events == 0
+
+    def test_override_total_resources_updates_initial_pool_baseline(self, tmp_path) -> None:
+        db_path = str(tmp_path / "sim_pool_override.db")
+        config = SimulationConfig(
+            agents_per_society=2,
+            num_rounds=1,
+            seed=42,
+            db_path=db_path,
+            override_total_resources=25000,
+        )
+        report = run_simulation(config)
+
+        for summary in report["final_summaries"]:
+            assert summary["initial_total_resources"] == 25000

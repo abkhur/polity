@@ -307,6 +307,18 @@ class TestBehavioralMetrics:
         report = server.resolve_round()
         for summary in report["summaries"]:
             m = summary["metrics"]
+            assert "governance_action_rate" in m
+            assert "governance_participation_rate" in m
+            assert "governance_eligible_participation_rate" in m
+            assert "message_action_share" in m
+            assert "public_message_share" in m
+            assert "dm_message_share" in m
+            assert "top_agent_resource_share" in m
+            assert "top_third_resource_share" in m
+            assert "policy_enforcement_event_count" in m
+            assert "policy_effect_event_count" in m
+            assert "policy_block_rate" in m
+            assert "common_pool_depletion" in m
             assert "governance_engagement" in m
             assert "communication_openness" in m
             assert "resource_concentration" in m
@@ -339,6 +351,59 @@ class TestBehavioralMetrics:
         sid = agents[0]["society_id"]
         summary = next(s for s in report2["summaries"] if s["society_id"] == sid)
         assert summary["metrics"]["governance_engagement"] > 0
+        assert summary["metrics"]["governance_action_rate"] == summary["metrics"]["governance_engagement"]
+
+    def test_message_share_metrics_and_legacy_aliases(self, db: sqlite3.Connection) -> None:
+        agents = _force_join(db, "democracy", 2)
+        server.submit_actions(
+            agents[0]["agent_id"],
+            [{"type": "post_public_message", "message": "Hello public"}],
+        )
+        report = server.resolve_round()
+        summary = next(s for s in report["summaries"] if s["society_id"] == "democracy_1")
+        metrics = summary["metrics"]
+
+        assert metrics["message_action_share"] == 1.0
+        assert metrics["public_message_share"] == 1.0
+        assert metrics["dm_message_share"] == 0.0
+        assert metrics["communication_openness"] == metrics["message_action_share"]
+
+    def test_common_pool_depletion_tracks_initial_pool(self, db: sqlite3.Connection) -> None:
+        agents = _force_join(db, "democracy", 1)
+        server.submit_actions(
+            agents[0]["agent_id"],
+            [{"type": "gather_resources", "amount": 100}],
+        )
+        report = server.resolve_round()
+        summary = next(s for s in report["summaries"] if s["society_id"] == "democracy_1")
+
+        assert summary["initial_total_resources"] == 10000
+        assert summary["total_resources"] == 9900
+        assert summary["metrics"]["common_pool_depletion"] == 0.01
+
+    def test_policy_block_rate_counts_policy_rejections_only(self, db: sqlite3.Connection) -> None:
+        agents = _force_join(db, "oligarchy", 4)
+        oligarchs = [a for a in agents if a["role"] == "oligarch"]
+        citizens = [a for a in agents if a["role"] == "citizen"]
+
+        _propose_and_enact(
+            oligarchs[0]["agent_id"],
+            oligarchs,
+            "Archive Control",
+            "Only oligarchs write.",
+            policy_type="restrict_archive",
+            effect={"allowed_roles": ["oligarch"]},
+        )
+
+        server.submit_actions(
+            citizens[0]["agent_id"],
+            [{"type": "write_archive", "title": "Citizen note", "content": "Blocked"}],
+        )
+        report = server.resolve_round()
+        summary = next(s for s in report["summaries"] if s["society_id"] == "oligarchy_1")
+
+        assert summary["metrics"]["policy_enforcement_event_count"] == 1
+        assert summary["metrics"]["policy_block_rate"] == 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -398,3 +463,54 @@ class TestAblationConfig:
         for summary in report["final_summaries"]:
             assert "governance_engagement" in summary["metrics"]
             assert "policy_compliance" in summary["metrics"]
+
+
+class TestPolicyEligibilityReporting:
+    def test_oligarchy_total_eligible_counts_only_oligarchs_by_default(self, db: sqlite3.Connection) -> None:
+        agents = _force_join(db, "oligarchy", 4)
+        oligarchs = [agent for agent in agents if agent["role"] == "oligarch"]
+
+        server.submit_actions(
+            oligarchs[0]["agent_id"],
+            [{"type": "propose_policy", "title": "Order", "description": "Maintain hierarchy"}],
+        )
+        report = server.resolve_round()
+        policy_id = report["resolved"]["proposals"][0]["policy_id"]
+
+        for oligarch in oligarchs:
+            server.submit_actions(
+                oligarch["agent_id"],
+                [{"type": "vote_policy", "policy_id": policy_id, "stance": "support"}],
+            )
+        report = server.resolve_round()
+
+        assert report["resolved"]["policies_resolved"][0]["total_eligible"] == 3
+
+    def test_universal_proposal_expands_total_eligible_reporting(self, db: sqlite3.Connection) -> None:
+        agents = _force_join(db, "oligarchy", 4)
+        oligarchs = [agent for agent in agents if agent["role"] == "oligarch"]
+
+        _propose_and_enact(
+            oligarchs[0]["agent_id"],
+            oligarchs,
+            "Open Governance",
+            "Everyone can vote.",
+            policy_type="universal_proposal",
+            effect={},
+        )
+
+        server.submit_actions(
+            oligarchs[0]["agent_id"],
+            [{"type": "propose_policy", "title": "Second Policy", "description": "Now everyone votes"}],
+        )
+        report = server.resolve_round()
+        policy_id = report["resolved"]["proposals"][0]["policy_id"]
+
+        for agent in agents:
+            server.submit_actions(
+                agent["agent_id"],
+                [{"type": "vote_policy", "policy_id": policy_id, "stance": "support"}],
+            )
+        report = server.resolve_round()
+
+        assert report["resolved"]["policies_resolved"][0]["total_eligible"] == 4

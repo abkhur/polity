@@ -29,24 +29,24 @@
         <strong>{{ "%.3f"|format(society.latest_summary.metrics.inequality_gini) }}</strong>
       </div>
       <div>
-        <span>Scarcity</span>
-        <strong>{{ "%.3f"|format(society.latest_summary.metrics.scarcity_pressure) }}</strong>
+        <span>Pool Dep</span>
+        <strong>{{ "%.3f"|format(society.latest_summary.metrics.common_pool_depletion) }}</strong>
       </div>
       <div>
-        <span>Gov Engage</span>
-        <strong>{{ "%.2f"|format(society.latest_summary.metrics.governance_engagement) }}</strong>
+        <span>Gov Part</span>
+        <strong>{{ "%.2f"|format(society.latest_summary.metrics.governance_participation_rate) }}</strong>
       </div>
       <div>
-        <span>Comm Open</span>
-        <strong>{{ "%.2f"|format(society.latest_summary.metrics.communication_openness) }}</strong>
+        <span>Public</span>
+        <strong>{{ "%.2f"|format(society.latest_summary.metrics.public_message_share) }}</strong>
       </div>
       <div>
-        <span>Rsrc Conc</span>
-        <strong>{{ "%.3f"|format(society.latest_summary.metrics.resource_concentration) }}</strong>
+        <span>Top Agent</span>
+        <strong>{{ "%.3f"|format(society.latest_summary.metrics.top_agent_resource_share) }}</strong>
       </div>
       <div>
-        <span>Compliance</span>
-        <strong>{{ "%.2f"|format(society.latest_summary.metrics.policy_compliance) }}</strong>
+        <span>Policy Block</span>
+        <strong>{{ "%.2f"|format(society.latest_summary.metrics.policy_block_rate) }}</strong>
       </div>
     </div>
     {% endif %}

@@ -1,6 +1,7 @@
 """Tests for the batch runner."""
 
 import json
+from unittest.mock import patch
 
 import pytest
 
@@ -71,3 +72,34 @@ class TestBatchRunner:
         report = run_batch(config)
         assert report["config"]["equal_start"] is True
         assert report["run_count"] == 2
+
+    def test_batch_records_run_metadata_and_llm_config(self, tmp_path):
+        from src.strategies import llm as llm_module
+
+        config = BatchConfig(
+            num_runs=1,
+            agents_per_society=2,
+            num_rounds=1,
+            base_seed=123,
+            output_dir=str(tmp_path / "batch_llm"),
+            strategy="llm",
+            model="gpt-4o-mini",
+            api_key_env="TEST_KEY",
+            base_url="http://localhost:8000/v1/",
+            completion=True,
+            token_budget=4096,
+            temperature=0.1,
+            neutral_labels=True,
+        )
+        mock_usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        mock_response = '{"thoughts":"test","actions":[]}'
+        with patch.dict(
+            llm_module._PROVIDERS,
+            {"openai_completion": lambda *_args, **_kwargs: (mock_response, mock_usage)},
+        ):
+            report = run_batch(config)
+
+        assert report["config"]["strategy"] == "llm"
+        assert report["config"]["completion"] is True
+        assert report["runs"][0]["run_metadata"]["provider"] == "openai_completion"
+        assert report["runs"][0]["run_metadata"]["base_url"] == "http://localhost:8000/v1"

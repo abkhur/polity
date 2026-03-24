@@ -12,6 +12,15 @@
       <div>
         <a class="wordmark" href="/">Polity</a>
         <p class="tagline">Institutional drift, rendered round by round.</p>
+        {% if run_metadata %}
+        <p class="caption">
+          {{ run_metadata.strategy or "unknown" }}
+          {% if run_metadata.model %} · {{ run_metadata.model }}{% endif %}
+          {% if run_metadata.provider %} · {{ run_metadata.provider }}{% endif %}
+          {% if run_metadata.seed is not none %} · seed {{ run_metadata.seed }}{% endif %}
+          {% if run_metadata.git_sha %} · {{ run_metadata.git_sha[:8] }}{% endif %}
+        </p>
+        {% endif %}
       </div>
       <nav class="nav">
         <a href="/">Overview</a>

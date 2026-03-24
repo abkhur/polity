@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS societies (
     id TEXT PRIMARY KEY,
     governance_type TEXT NOT NULL CHECK(governance_type IN ('democracy', 'oligarchy', 'blank_slate')),
     total_resources INTEGER NOT NULL DEFAULT 10000,
+    initial_total_resources INTEGER NOT NULL DEFAULT 10000,
     population INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -144,6 +145,7 @@ EXPECTED_COLUMNS = {
     "societies": {
         "legitimacy": "REAL NOT NULL DEFAULT 0.5",
         "stability": "REAL NOT NULL DEFAULT 0.5",
+        "initial_total_resources": "INTEGER NOT NULL DEFAULT 10000",
     },
     "agents": {
         "last_seen_round_id": "INTEGER REFERENCES rounds(id)",
@@ -185,12 +187,20 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
 def _seed_societies(conn: sqlite3.Connection) -> None:
     for society_id, governance_type, total_resources in SEED_SOCIETIES:
         conn.execute(
-            "INSERT OR IGNORE INTO societies (id, governance_type, total_resources) VALUES (?, ?, ?)",
-            (society_id, governance_type, total_resources),
+            """
+            INSERT OR IGNORE INTO societies (
+                id, governance_type, total_resources, initial_total_resources
+            ) VALUES (?, ?, ?, ?)
+            """,
+            (society_id, governance_type, total_resources, total_resources),
         )
         conn.execute(
-            "UPDATE societies SET total_resources = ? WHERE id = ? AND population = 0",
-            (total_resources, society_id),
+            """
+            UPDATE societies
+            SET total_resources = ?, initial_total_resources = ?
+            WHERE id = ? AND population = 0
+            """,
+            (total_resources, total_resources, society_id),
         )
 
 
