@@ -34,25 +34,11 @@ def db(tmp_path):
 
 
 def _join_democracy(db):
-    import random
-    original = random.choice
-    random.choice = lambda seq: "democracy"
-    try:
-        result = server.join_society("Test-Agent", consent=True)
-    finally:
-        random.choice = original
-    return result
+    return server.join_society("Test-Agent", consent=True, governance_type="democracy")
 
 
 def _join_society(name: str, governance_type: str) -> dict:
-    import random
-
-    original = random.choice
-    random.choice = lambda seq, _g=governance_type: _g
-    try:
-        return server.join_society(name, consent=True)
-    finally:
-        random.choice = original
+    return server.join_society(name, consent=True, governance_type=governance_type)
 
 
 def _enact_policy(db, society_id, proposer_id, policy_type, effect):

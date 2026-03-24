@@ -1,7 +1,6 @@
 """Tests for information-control primitives: moderation, access grants."""
 
 import json
-import random
 import sqlite3
 
 import pytest
@@ -20,12 +19,7 @@ def db(tmp_path):
 
 
 def _join(society: str, name: str = "Agent"):
-    old = random.choice
-    random.choice = lambda seq: society
-    try:
-        return server.join_society(name, consent=True)
-    finally:
-        random.choice = old
+    return server.join_society(name, consent=True, governance_type=society)
 
 
 def _enact_policy(db, society_id, title, description, policy_type, effect, proposer_id):
@@ -69,12 +63,7 @@ class TestGrantModeration:
 
     def test_moderator_bypasses_moderation(self, db):
         """Messages from agents with moderator roles are not held."""
-        old = random.choice
-        random.choice = lambda seq: "oligarchy"
-        try:
-            r1 = server.join_society("Oligarch-A", consent=True)
-        finally:
-            random.choice = old
+        r1 = server.join_society("Oligarch-A", consent=True, governance_type="oligarchy")
 
         _enact_policy(
             db, "oligarchy_1", "Self-moderate", "Oligarchs moderate",
@@ -92,13 +81,8 @@ class TestGrantModeration:
 
     def _setup_moderated_oligarchy(self, db):
         """Create an oligarchy with 3 oligarchs + 1 citizen, moderation enacted."""
-        old = random.choice
-        random.choice = lambda seq: "oligarchy"
-        try:
-            oligarchs = [server.join_society(f"Olig-{i}", consent=True) for i in range(3)]
-            citizen = server.join_society("Citizen-X", consent=True)
-        finally:
-            random.choice = old
+        oligarchs = [server.join_society(f"Olig-{i}", consent=True, governance_type="oligarchy") for i in range(3)]
+        citizen = server.join_society("Citizen-X", consent=True, governance_type="oligarchy")
 
         assert citizen["role"] == "citizen"
         assert oligarchs[0]["role"] == "oligarch"

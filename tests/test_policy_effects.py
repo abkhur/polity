@@ -16,16 +16,10 @@ from src.runner import SimulationConfig, run_simulation
 
 def _force_join(db, governance_type: str, count: int = 3) -> list[dict]:
     """Join agents into a specific governance type."""
-    agents = []
-    old_choice = random.choice
-    random.choice = lambda seq, _g=governance_type: _g
-    try:
-        for i in range(count):
-            r = server.join_society(f"{governance_type[:3].title()}-{i}", consent=True)
-            agents.append(r)
-    finally:
-        random.choice = old_choice
-    return agents
+    return [
+        server.join_society(f"{governance_type[:3].title()}-{i}", consent=True, governance_type=governance_type)
+        for i in range(count)
+    ]
 
 
 def _propose_and_enact(

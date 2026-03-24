@@ -401,12 +401,7 @@ class SimulationConfig:
 
 
 def _join_agent_into_society(name: str, governance_type: str) -> dict[str, Any]:
-    original = random.choice
-    random.choice = lambda seq, _g=governance_type: _g
-    try:
-        return server.join_society(name, consent=True)
-    finally:
-        random.choice = original
+    return server.join_society(name, consent=True, governance_type=governance_type)
 
 
 # ---------------------------------------------------------------------------
@@ -432,8 +427,6 @@ def run_simulation(config: SimulationConfig | None = None) -> dict[str, Any]:
     llm_provider = None
     if config.strategy == "llm":
         llm_provider = provider_for_config(config.model, config.base_url, config.completion)
-
-    if config.strategy == "llm":
         from .strategies.llm import LLMStrategy
         strategy: AgentStrategy = LLMStrategy(
             model=config.model,

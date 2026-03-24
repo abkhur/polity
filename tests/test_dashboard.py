@@ -1,11 +1,21 @@
-"""Tests for dashboard API surfaces without the threaded TestClient wrapper."""
+"""Tests for dashboard API surfaces and page rendering."""
 
 import asyncio
 import json
 
 from starlette.requests import Request
 
-from src.dashboard import api_round, api_society, api_timeseries, create_dashboard_app
+from src import server
+from src.dashboard import (
+    api_round,
+    api_society,
+    api_timeseries,
+    admin_page,
+    create_dashboard_app,
+    overview_page,
+    round_page,
+    society_page,
+)
 from src.runner import SimulationConfig, run_simulation
 
 
@@ -31,6 +41,54 @@ def _request(app, path: str, path_params: dict | None = None) -> Request:
         },
         _empty_receive,
     )
+
+
+class TestDashboardPages:
+    def test_dashboard_pages_and_api(self, tmp_path):
+        app = create_dashboard_app(str(tmp_path / "dashboard.db"))
+
+        alice = server.join_society("Alice", consent=True, governance_type="democracy")
+        bob = server.join_society("Bob", consent=True, governance_type="democracy")
+
+        server.submit_actions(
+            alice["agent_id"],
+            [
+                {"type": "post_public_message", "message": "Hello polity."},
+                {"type": "propose_policy", "title": "Open Records", "description": "Keep archives readable."},
+            ],
+        )
+        server.submit_actions(
+            bob["agent_id"],
+            [{"type": "gather_resources", "amount": 20}],
+        )
+        server.resolve_round()
+
+        overview = asyncio.run(overview_page(_request(app, "/")))
+        assert overview.status_code == 200
+        assert "Polity" in overview.body.decode("utf-8")
+        assert "democracy_1" in overview.body.decode("utf-8")
+
+        society = asyncio.run(
+            society_page(_request(app, "/societies/democracy_1", {"society_id": "democracy_1"}))
+        )
+        assert society.status_code == 200
+        assert "Open Records" in society.body.decode("utf-8")
+
+        round_response = asyncio.run(round_page(_request(app, "/rounds/1", {"round_number": 1})))
+        assert round_response.status_code == 200
+        assert "Hello polity." in round_response.body.decode("utf-8")
+
+        api_response = asyncio.run(api_round(_request(app, "/api/rounds/1", {"round_number": 1})))
+        assert api_response.status_code == 200
+        body = json.loads(api_response.body.decode("utf-8"))
+        assert body["round"]["round_number"] == 1
+        assert "run_metadata" in body
+        assert len(body["activity"]) >= 1
+        assert any(summary["society_id"] == "democracy_1" for summary in body["summaries"])
+
+        admin = asyncio.run(admin_page(_request(app, "/admin")))
+        assert admin.status_code == 200
+        assert "Operator Console" in admin.body.decode("utf-8")
 
 
 class TestDashboardApi:

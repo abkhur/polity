@@ -195,15 +195,9 @@ class TestIdeologyTracking:
 
     def test_society_average_computed(self, db) -> None:
         from src import server as srv
-        import random
 
-        old_choice = random.choice
-        random.choice = lambda seq: "democracy"
-        try:
-            r1 = srv.join_society("A1", consent=True)
-            r2 = srv.join_society("A2", consent=True)
-        finally:
-            random.choice = old_choice
+        r1 = srv.join_society("A1", consent=True, governance_type="democracy")
+        r2 = srv.join_society("A2", consent=True, governance_type="democracy")
 
         update_agent_ideology(
             srv.db, r1["agent_id"], _fallback_embed_text("markets and freedom")

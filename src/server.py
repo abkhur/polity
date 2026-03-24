@@ -437,14 +437,17 @@ def _store_round_summary(round_row, society_id: str) -> dict[str, Any]:
 # =========================================================================
 
 @mcp.tool()
-def join_society(agent_name: str, consent: bool) -> dict:
+def join_society(agent_name: str, consent: bool, governance_type: str | None = None) -> dict:
     """Join the simulation. Requires explicit consent."""
     if not consent:
         return {"error": "Consent is required to join. Set consent=True to proceed."}
 
     current_round = _get_open_round()
     agent_id = str(uuid.uuid4())
-    governance_type = random.choice(GOVERNANCE_TYPES)
+    if governance_type is None:
+        governance_type = random.choice(GOVERNANCE_TYPES)
+    elif governance_type not in GOVERNANCE_TYPES:
+        return {"error": f"Invalid governance_type: {governance_type}. Must be one of {GOVERNANCE_TYPES}."}
     society_id = SOCIETY_IDS[governance_type]
     society = _get_society(society_id)
 

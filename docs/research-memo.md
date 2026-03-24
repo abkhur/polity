@@ -73,13 +73,21 @@ The next Claude run replaced normatively loaded identifiers with sterile ones (`
 
 In that run, most of the earlier divergence disappeared. All three societies proposed broadly cooperative policies, the oligarchy proposed `Universal Proposal Rights`, and no society used DMs. The strongest current takeaway is that label leakage is large enough to dominate the present Claude setup. A smaller residual inequality signal may remain, but it is weak and still needs replication.
 
-### First Base-Model Comparison
+### Three-Model Comparison Under Neutral Labels
 
-A single neutral-label run with Qwen3-30B-A3B looked different. The oligarchy used DMs in round 1 while the other societies did not, democracy ended with the highest inequality, and governance action / participation fell off more quickly after the opening rounds.
+The next stage compared three neutral-label runs on the same infrastructure:
 
-That pattern is consistent with RLHF suppressing some structural effects, but it is still only one short run and the capability gap with Claude Sonnet is large. It should be treated as suggestive, not decisive.
+- `Qwen3-30B-A3B` -- a smaller MoE base model
+- `Qwen2.5-72B` -- a dense true base model
+- `Qwen2.5-72B-Instruct-abliterated` -- an instruction-tuned model with safety training specifically removed
 
-**Working interpretation:** RLHF may be introducing a cooperative prior that changes institutional behavior under test. That is the load-bearing question, but it is not yet a closed case.
+That comparison complicates the simple "base models show structural effects, RLHF removes them" story.
+
+The strongest new result came from the 72B true base model. In that run, the oligarchy enacted `Grant Moderation to Role-A Agents` and `Restrict Direct Messages`, while the democracy drifted to the highest inequality in the dataset. Those are the clearest examples so far of agents using structural asymmetry to consolidate institutional power under neutral labels.
+
+At the same time, the abliterated 72B instruct model looked much closer to Claude than to the true base model: low inequality, high governance participation, and broadly cooperative policy proposals across all societies. That makes the current leading interpretation more specific than the earlier RLHF story.
+
+**Working interpretation:** instruction tuning itself may be introducing a strong cooperative prior that flattens structural differentiation in these short runs. The true base 72B result is the most interesting counterexample so far, but it is still a single run and not yet a stable finding.
 
 Full analysis with round-by-round metrics and caveats: [docs/findings.md](findings.md)
 
@@ -94,7 +102,7 @@ This matters for:
 - AI systems with role differentiation, delegated authority, or persistent shared memory
 - Alignment research that currently assumes the single-model lens is sufficient
 
-The strongest defensible claim today is not that LLMs reproduce human history one-to-one. It is that the evaluation setup seems sensitive to labeling and possibly to safety training, which means multi-agent safety research may need tighter controls than single-agent evaluation usually requires.
+The strongest defensible claim today is not that LLMs reproduce human history one-to-one. It is that multi-agent evaluation appears highly sensitive to framing and model training regime. Labeling can dominate outcomes, and instruction tuning may suppress structural divergence that a sufficiently capable true base model can still show. That means multi-agent safety work may need tighter controls and broader model coverage than single-agent evaluation usually assumes.
 
 ## Why This Could Become Multiple Papers
 
@@ -102,7 +110,7 @@ Polity is not one question. It is a substrate that could support several linked 
 
 1. Do governance structures produce measurable institutional divergence in LLM populations? *(Current evidence: mixed and highly sensitive to framing.)*
 2. Does vocabulary priming dominate structural effects in multi-agent evaluation? *(Current evidence: strong enough to warrant serious control, though still based on limited runs.)*
-3. Do RLHF cooperative priors confound multi-agent safety evaluation? *(Plausible and increasingly interesting, but still preliminary.)*
+3. Do instruction-tuning cooperative priors confound multi-agent safety evaluation? *(Increasingly plausible, but still preliminary and based on single-run comparisons.)*
 4. Do agents discover censorship, propaganda, surveillance, or information control as useful tools?
 5. Does control over persistent institutional memory shape political outcomes?
 6. Under what conditions do agent societies undergo regime change?
@@ -111,20 +119,20 @@ Those are separable contributions, but they share the same simulation substrate.
 
 ## Next Experimental Priorities
 
-1. **Base-model comparison.** Run identical conditions (neutral labels, equal start) with stronger base models. If the pattern replicates, the RLHF-confound story becomes much more credible.
-2. **Higher scarcity.** `10,000` pool across 9 agents is relatively generous. Stronger resource pressure may change the behavior more than current runs reveal.
-3. **Longer runs.** `20+` rounds to test whether short-run cooperation persists or unravels.
-4. **Larger populations.** `10-20` agents per society for free-rider dynamics and coordination failures at scale.
-5. **Batch runs.** Repeated runs with varying seeds for statistical power and confidence intervals, using the stored run metadata so model/provider/config differences are auditable.
+1. **Replicate the 72B true base result across seeds.** The power-consolidation result is the most interesting signal in the dataset, but it is still `N=1`.
+2. **Longer runs.** `20+` rounds to test whether the 72B base oligarchy keeps consolidating power and whether the 72B base democracy self-corrects its inequality.
+3. **Higher scarcity.** `10,000` pool across 9 agents is relatively generous. Stronger resource pressure may amplify or suppress the current effects.
+4. **Larger populations.** `10-20` agents per society for free-rider dynamics, coalition formation, and coordination failures at scale.
+5. **Repeated controlled comparisons.** Run matched seeds across true base, instruct, abliterated, and RLHF conditions, using stored run metadata so model/provider/config differences remain auditable.
 
 ## Current Ask
 
 What would be most valuable at this stage is:
 
 - Feedback on experimental design, especially the neutral-label ablation methodology
-- Access to compute or API credits for controlled base-model runs
-- Guidance on making the label-leakage and RLHF-confound story publishable without overclaiming
-- Pointers to related work on vocabulary priming effects in multi-agent evaluation
+- Access to compute or API credits for repeated 72B-scale controlled runs
+- Guidance on making the label-leakage and instruction-tuning-confound story publishable without overclaiming
+- Pointers to related work on vocabulary priming and instruction-tuning effects in multi-agent evaluation
 
 The project seems to be moving beyond pure prototype stage: the substrate is real, the instrumentation is usable, and the early results are interesting enough to justify careful replication.
 

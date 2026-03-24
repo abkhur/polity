@@ -2,7 +2,6 @@
 
 import json
 import os
-import random
 from unittest.mock import patch
 
 import pytest
@@ -55,13 +54,7 @@ def db(tmp_path):
 
 def _join_oligarchy(db):
     from src import server
-    original = random.choice
-    random.choice = lambda seq: "oligarchy"
-    try:
-        result = server.join_society("Test-Agent", consent=True)
-    finally:
-        random.choice = original
-    return result
+    return server.join_society("Test-Agent", consent=True, governance_type="oligarchy")
 
 
 # -- _build_current_state governance stripping --------------------------------

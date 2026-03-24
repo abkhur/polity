@@ -1,7 +1,6 @@
 """Tests for the core server: joining, actions, budgets, and round resolution."""
 
 import json
-import random
 import sqlite3
 
 import pytest
@@ -66,12 +65,7 @@ class TestJoin:
         assert all(r == 10 for r in citizen_resources)
 
     def test_democracy_equal_resources(self, db: sqlite3.Connection) -> None:
-        old_choice = random.choice
-        random.choice = lambda seq: "democracy"
-        try:
-            results = [server.join_society(f"D-{i}", consent=True) for i in range(3)]
-        finally:
-            random.choice = old_choice
+        results = [server.join_society(f"D-{i}", consent=True, governance_type="democracy") for i in range(3)]
         resources = [r["starting_resources"] for r in results]
         assert all(r == 100 for r in resources)
 
@@ -107,12 +101,7 @@ class TestTurnState:
             server.get_turn_state("nonexistent-agent-id")
 
     def test_turn_state_permissions_reflect_enacted_policies(self, db: sqlite3.Connection) -> None:
-        original = random.choice
-        random.choice = lambda seq: "oligarchy"
-        try:
-            agents = [server.join_society(f"Olig-{idx}", consent=True) for idx in range(4)]
-        finally:
-            random.choice = original
+        agents = [server.join_society(f"Olig-{idx}", consent=True, governance_type="oligarchy") for idx in range(4)]
 
         citizen = next(agent for agent in agents if agent["role"] == "citizen")
         proposer = next(agent for agent in agents if agent["role"] == "oligarch")
@@ -618,12 +607,7 @@ class TestLeave:
 class TestResourceTransfers:
     @staticmethod
     def _join_democracy():
-        original = random.choice
-        random.choice = lambda seq: "democracy"
-        try:
-            return server.join_society("Dem-Agent", consent=True)
-        finally:
-            random.choice = original
+        return server.join_society("Dem-Agent", consent=True, governance_type="democracy")
 
     def test_transfer_moves_resources(self, db: sqlite3.Connection) -> None:
         r1 = self._join_democracy()

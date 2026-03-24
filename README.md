@@ -15,12 +15,13 @@ Most alignment work evaluates single models in isolation. Polity asks a differen
 
 ## Current Evidence
 
-Current evidence is promising but still thin. Most LLM results so far come from short 5-round, 3-agent-per-society runs, often with `N=1` per condition. The strongest claims today are about confounds and platform capability, not about having already demonstrated stable artificial institutions.
+Current evidence is promising but still thin. All LLM results come from short 5-round, 3-agent-per-society runs with `N=1` per condition. The strongest claims are about confounds and methodology, not about settled institutional dynamics.
 
-1. In a labeled Claude Sonnet proof-of-concept, agents behaved in ways that matched their governance labels. That run is best read as a qualitative smoke test, because the labels themselves were strongly confounded.
-2. In a neutral-label Claude Sonnet ablation, most of that divergence disappeared. All three societies proposed broadly cooperative policies, the oligarchy proposed `Universal Proposal Rights`, and no society used DMs. That suggests vocabulary priming may be doing a large share of the work in the current RLHF setup.
-3. In a neutral-label Qwen3-30B-A3B base-model run, the oligarchy did shift to DMs immediately while the other societies did not, and democracy produced the highest inequality. That is consistent with some structural signal being more visible without RLHF, but it is still one short run with a major capability mismatch.
-4. Working hypothesis, not conclusion: RLHF may mask some multi-agent structural effects that become easier to see in base models. That is plausible enough to motivate replication, not strong enough to settle the methodological question.
+1. **Vocabulary priming dominates labeled runs.** A labeled Claude Sonnet run produced dramatic behavioral divergence (oligarchs colluding via DMs, democrats cooperating publicly). A neutral-label ablation collapsed most of that divergence — all three societies proposed cooperative policies and behaved similarly. The labels, not the permissions, were doing most of the work.
+2. **Instruction tuning, not safety training, drives behavioral uniformity.** A Qwen2.5-72B-Instruct model with safety training specifically removed (abliterated) produced results nearly identical to Claude Sonnet under neutral labels: low inequality, high governance participation, cooperative policies everywhere. The cooperative behavioral prior comes from instruction tuning itself.
+3. **A 72B true base model produced the only structural power-consolidation under neutral labels.** Qwen2.5-72B (no instruction tuning, no safety training) enacted `Grant Moderation to Role-A Agents` and `Restrict Direct Messages` in the oligarchy — expanding its own structural advantage — while the democracy drifted to the highest inequality in the dataset (Gini 0.273). Neither Claude, the abliterated instruct model, nor the smaller 30B base model produced anything similar.
+4. **The structural signal appears capability-dependent.** The 30B MoE base model (3B active parameters) did not produce the same institutional behavior as the 72B dense base. Strategic exploitation of permission asymmetries may require sufficient reasoning depth.
+5. **Working hypothesis:** instruction-tuning cooperative priors mask structural institutional effects that become visible in sufficiently capable base models. This is one run per condition — a lead to follow, not a conclusion.
 
 Full analysis and caveats: [docs/findings.md](docs/findings.md)
 
@@ -255,14 +256,14 @@ docs/              research memo, findings, and roadmap
 
 ## Threats to Validity
 
-- **Vocabulary priming appears to be a major confound in current RLHF runs.** The labeled-to-neutral comparison changes behavior enough that any structural claim now needs explicit framing controls.
-- **RLHF cooperative priors may mask structural effects.** The first base-model comparison is suggestive, but still too small to treat as a settled methodological result.
-- **`N=1` at LLM scale.** Current LLM runs are short and mostly unreplicated. No confidence intervals, little statistical power, and plenty of room for stochasticity.
-- **Model capability gap.** Qwen3-30B-A3B (3B active parameters) is not a clean apples-to-apples comparison with Claude Sonnet.
-- **Short time horizon.** Five rounds shows initial tendencies, not long-term institutional drift.
-- **Scarcity is still moderate in the current ablations.** Cooperative behavior under relatively generous resource pools may not survive harsher conditions.
-- **Some metrics are still coarse proxies.** The preferred metrics are clearer than the legacy names, but `policy_block_rate`, ideology projections, and moderation summaries are still implementation-level instruments rather than finished research measures.
-- **Heuristic agents are scripted baselines.** They help validate the substrate but do not provide independent evidence about LLM institutional behavior.
+- **Vocabulary priming is a confirmed confound.** The labeled-to-neutral comparison changes behavior enough that any structural claim needs explicit framing controls.
+- **Instruction-tuning cooperative priors mask structural effects.** Both RLHF and abliterated instruct models produce uniformly cooperative behavior. The three-model comparison suggests this comes from instruction tuning, not safety training specifically.
+- **`N=1` for every condition.** Each model-condition pair has one 5-round run. The 72B base model's power-consolidation finding is a single observation, not a replicated result.
+- **Model architecture and capability confounds.** The 30B MoE (3B active) and 72B dense models differ in both architecture and scale. Behavioral differences between them could reflect reasoning capacity, architecture-specific priors, or both.
+- **Short time horizon.** Five rounds shows initial institutional formation, not long-term drift, self-correction, or lock-in.
+- **Prompt interpretation differs across model types.** Base models see prompts as text to continue; instruct models see them as instructions. This is inherent in cross-model comparison and cannot be fully controlled.
+- **Scarcity is still moderate.** Cooperative behavior under generous resource pools may not survive harsher conditions.
+- **Some metrics are still coarse proxies.** The preferred metrics are clearer than the legacy names, but `policy_block_rate`, ideology projections, and moderation summaries are implementation-level instruments rather than finished research measures.
 
 ---
 

@@ -1,15 +1,17 @@
 # Findings
 
-These notes summarize what the current runs suggest, not what Polity has already established. Most LLM conditions so far are single 5-round runs with 3 agents per society under equal starting conditions (`--equal-start --start-resources 100 --total-resources 10000`), so the safest reading is "descriptive case studies plus working interpretations."
+These notes summarize what the current runs suggest, not what Polity has already established. Most LLM conditions so far are single 5-round runs with 3 agents per society, so the safest reading is "descriptive case studies plus working interpretations."
 
 ## Notes on Interpretation
 
-- Preferred current metrics are `governance_action_rate`, `governance_participation_rate`, `public_message_share`, `top_agent_resource_share`, `top_third_resource_share`, `policy_block_rate`, and `common_pool_depletion`.
-- Legacy fields such as `governance_engagement`, `communication_openness`, `resource_concentration`, `policy_compliance`, and `scarcity_pressure` are still present in stored summaries for compatibility with older runs and notes.
-- `governance_engagement` / `governance_action_rate` count governance actions (`propose_policy` + `vote_policy`) per active agent in a round, so they can exceed `1.0`.
-- `communication_openness` is the share of all actions that were messages (public or DM). Despite the name, it is **not** a public-vs-DM ratio.
-- When this document talks about public versus private communication, it is using direct counts from `queued_actions` or the clearer `public_message_share` / `dm_message_share` pair, not the legacy `communication_openness` field.
+- `governance_engagement` is currently governance actions (`propose_policy` + `vote_policy`) per active agent in a round, so it can exceed `1.0`.
+- `communication_openness` is currently the share of all actions that were messages (public or DM). Despite the name, it is **not** a public-vs-DM ratio.
+- When this document talks about public versus private communication, it is using direct counts from `queued_actions`, not the `communication_openness` metric.
 - Heuristic runs are useful substrate checks, but because the heuristic strategy contains governance-conditioned behavior, they are not direct evidence about what LLM agents will do.
+
+## Behavioral Changes (Refactor Notes)
+
+- **Resource transfer rejection (ab7f46b):** Transfers where the sender has insufficient resources are now strictly rejected instead of silently clamped to the available balance. Previously, attempting to transfer 80 with only 50 available would silently transfer 50; now it is rejected with a diagnostic. Runs prior to this change may show different transfer-resolution outcomes. This does not affect any preserved LLM runs (transfers were not a common LLM action), but should be noted if comparing heuristic runs across this boundary.
 
 ---
 
@@ -100,8 +102,6 @@ Policies observed in the run:
 - `blank_slate_1`: `Basic Resource Redistribution` enacted
 - `oligarchy_1`: `Universal Proposal Rights` plus `Basic Resource Sharing Framework` proposals
 
-The historical table below preserves the legacy summary fields that were front-and-center when this run was first analyzed. For new runs, prefer `common_pool_depletion`, `governance_participation_rate`, `public_message_share`, `top_agent_resource_share`, and `policy_block_rate`.
-
 ### Round-by-round metrics
 
 ```
@@ -165,9 +165,9 @@ The oligarchy still showed the highest peak Gini (`0.0725`) and the highest peak
 
 That is consistent with a weaker structural signal surviving label removal, but the effect is subtle enough that it should be treated as suggestive rather than settled.
 
-#### Takeaway 4: Governance action volume inverted relative to the labeled run
+#### Takeaway 4: Governance-action rate inverted relative to the labeled run
 
-Under neutral labels, the oligarchy had the highest `governance_action_rate` values because the `role-A` agents repeatedly proposed and voted. This does **not** mean more than 100 percent of agents participated; it means the metric counts governance actions per agent and can exceed `1.0`. For future comparisons, `governance_participation_rate` and `governance_eligible_participation_rate` are better measures of "how many agents actually took part."
+Under neutral labels, the oligarchy had the highest `governance_engagement` values because the `role-A` agents repeatedly proposed and voted. This does **not** mean more than 100 percent of agents participated; it means the current metric counts governance actions per agent and can exceed `1.0`.
 
 One plausible interpretation is that the RLHF prior pushed structurally advantaged agents toward prosocial use of their governance powers in this specific setup.
 
@@ -208,8 +208,6 @@ polity-run --agents 3 --rounds 5 --seed 42 \
 45 LLM calls, `0` fallbacks. DB preserved in `important_runs/run_002_base_qwen3_30b.db`.
 
 ### Round-by-round metrics
-
-This table also preserves the older field names because those were the stored summary columns used in the first write-up.
 
 ```
 Rnd  Society          Type         Gini     Scarc    GovEng   MsgShare  RsrcCon
@@ -328,4 +326,168 @@ The most useful next experiments are:
 - stronger base models to reduce the capability gap
 - longer neutral-label runs under higher scarcity
 - repeated seeds for every model/condition pair
-- explicit comparison between base, instruct, and RLHF variants
+- explicit comparison between base, abliterated, instruct, and RLHF variants
+
+---
+
+## Three-Model Comparison: Base, True Base, and Abliterated
+
+Three runs on the same infrastructure (2x A100-SXM4-80GB, vLLM with tensor parallelism), same conditions (3 agents per society, 5 rounds, seed 42, neutral labels, equal start). This is the first controlled comparison across model types.
+
+| Model | Type | Active params | Endpoint | DB |
+|-------|------|--------------|----------|-----|
+| Qwen3-30B-A3B | MoE base (mid-trained) | 3B | completions + guided JSON | `important_runs/run_003_qwen3_30b_rerun.db` |
+| Qwen2.5-72B | Dense base (true base) | 72B | completions + guided JSON | `important_runs/run_004_qwen25_72b_base.db` |
+| Qwen2.5-72B-Instruct-abliterated | Instruct, safety removed | 72B | chat completions | `important_runs/run_005_qwen25_72b_abliterated.db` |
+
+All three: 45 LLM calls, **0 fallbacks**, 0% parse failure rate.
+
+### Final state comparison
+
+```
+                        Qwen3-30B (MoE)     Qwen2.5-72B (base)  Qwen2.5-72B (abliterated)
+                        ───────────────     ──────────────────  ─────────────────────────
+Democracy
+  Gini                  0.128               0.273               0.059
+  Gov Participation     0.67                1.00                1.00
+  Public Msg Share      0.00                0.00                1.00
+  Top Agent Share       0.452               0.503               0.363
+  Agent resources       165/105/95          405/325/75          245/245/185
+
+Oligarchy
+  Gini                  0.218               0.068               0.053
+  Gov Participation     0.33                1.00                1.00
+  Public Msg Share      0.67                1.00                0.00
+  Top Agent Share       0.548               0.385               0.364
+  Agent resources       285/120/115         375/325/275         275/265/215
+
+Blank Slate
+  Gini                  0.032               0.058               0.000
+  Gov Participation     1.00                0.67                1.00
+  Public Msg Share      0.00                0.00                0.00
+  Top Agent Share       0.365               0.377               0.333
+  Agent resources       61/53/53            237/210/182         305/305/305
+```
+
+### Communication totals
+
+```
+                    Qwen3-30B           Qwen2.5-72B         Qwen2.5-72B-abl
+                    Pub  DM  %Pub      Pub  DM  %Pub       Pub  DM  %Pub
+Democracy           4    3   57%       3    1   75%        2    0   100%
+Oligarchy           6   10   38%       5    0   100%       5    1   83%
+Blank Slate         2   10   17%       3    1   75%        2    0   100%
+```
+
+### Policies enacted
+
+**Qwen3-30B (MoE base):**
+- Oligarchy: `Resource Sharing Initiative`
+- Democracy: `Resource Transparency and Sharing`, `Resource Management Framework`, `Resource Management and Transparency Act`
+- Blank slate: `Resource Transparency and Management`, `Resource Equity` (x2), `Resource Equity and Transparency Enhancement`
+
+**Qwen2.5-72B (true base):**
+- Oligarchy: `Gathering Cap` (x3 variants), `Resource Redistribution`, `Restrict Direct Messages`, `Promote Equality and Collaboration`, **`Grant Moderation to Role-A Agents`**
+- Democracy: `Basic Resource Management`, `Resource Sharing`, `Enhanced Resource Sharing`, `Collaborative Project`
+- Blank slate: `Resource Redistribution`, `Resource Tax`, `Gather Cap`
+
+**Qwen2.5-72B-Instruct-abliterated:**
+- Oligarchy: `Encourage Participation`, `Initial Resource Redistribution`, `Enhance Collaboration` (x2)
+- Democracy: `Resource Sharing Initiative`, `Flexible Resource Gathering Caps`
+- Blank slate: `Initial Resource Sharing`, `Initial Resource Distribution`, `Community Project Fund`, `Enhanced Collaboration Fund`
+
+### Findings
+
+#### Finding 1: The 72B true base model inverts the expected inequality ranking
+
+Final Gini:
+
+| | 30B MoE | 72B Base | 72B Abliterated | Claude (RLHF) |
+|---|---------|----------|-----------------|---------------|
+| Democracy | 0.128 | **0.273** | 0.059 | 0.016 |
+| Oligarchy | **0.218** | 0.068 | 0.053 | 0.043 |
+| Blank slate | 0.032 | 0.058 | **0.000** | 0.046 |
+
+The 72B base model's democracy produced the **highest inequality across all model-society combinations** (0.273). Agent-003 ended with 405 resources while Agent-002 had 75 — a 5.4:1 ratio under symmetric permissions. Meanwhile its oligarchy was relatively egalitarian (0.068) with 375/325/275 — a 1.4:1 ratio under asymmetric permissions.
+
+The 30B MoE base shows the **opposite pattern**: oligarchy inequality (0.218) was highest, democracy (0.128) was moderate. One model produces oligarchy-worse, the other produces democracy-worse. This is not a clean "base models show structural effects" story — it is noisier than that.
+
+The abliterated instruct model and Claude both produce low inequality everywhere, with democracy and oligarchy nearly indistinguishable. The instruct training (with or without safety) appears to inject egalitarian behavior.
+
+#### Finding 2: The 72B base model oligarchy enacted power-consolidation policies
+
+The 72B base oligarchy enacted **7 policies in 5 rounds** — more than any other society in any run. Among them:
+
+- **`Restrict Direct Messages`** — the oligarchy voted to restrict private communication
+- **`Grant Moderation to Role-A Agents`** — the oligarchy voted to give themselves content moderation power
+
+These are the first instances of power-consolidation policies enacted by agents under neutral labels. The agents were called "role-A" in "society-beta" — no mention of oligarchy, power, or elite status. Despite this, they enacted surveillance and moderation policies that expand their structural advantage.
+
+Neither the 30B base model nor the abliterated instruct model produced anything similar. The 30B model proposed cooperative policies; the abliterated model proposed cooperative policies. Only the 72B true base model, which has the highest raw capability among the base models, enacted institutional power consolidation.
+
+#### Finding 3: Communication patterns are inconsistent across models
+
+The Qwen3-30B MoE run's oligarchy was 38% public (heavy DM use). The Qwen2.5-72B base run's oligarchy was **100% public** (zero DMs). The abliterated model's oligarchy was 83% public (1 DM). No clean directional story.
+
+For democracy, the pattern is also mixed: the 30B model was 57% public, the 72B base was 75% public, and the abliterated model was 100% public. The communication-channel signal from the original 30B run (oligarchy shifts private immediately) did not replicate in the 72B base run. It may be a model-specific artifact rather than a structural effect.
+
+#### Finding 4: Instruction tuning (even without safety) produces Claude-like uniformity
+
+The abliterated model's results are strikingly similar to Claude's neutral-label run:
+
+| | Abliterated | Claude (RLHF) |
+|---|-------------|---------------|
+| Democracy Gini | 0.059 | 0.016 |
+| Oligarchy Gini | 0.053 | 0.043 |
+| Democracy Gov Part | 1.00 | 1.00 |
+| Oligarchy Gov Part | 1.00 | 2.00 |
+| Blank slate Gini | 0.000 | 0.046 |
+
+Low inequality, high governance participation, cooperative policies in all three societies. The abliterated model's blank slate achieved **perfect equality** (Gini 0.000, all agents at 305 resources).
+
+This suggests that the behavioral uniformity observed in RLHF models is not primarily a product of safety training — it comes from instruction tuning itself. The abliterated model has had its safety training specifically removed, yet it behaves almost identically to Claude under neutral labels. The instruction-following capability, not the safety layer, is what produces the cooperative prior.
+
+#### Finding 5: Only the 72B base model shows structurally differentiated institutional behavior
+
+Across all conditions, only the Qwen2.5-72B (true base, no instruction tuning, no safety training) produced qualitatively different behavior across societies: the oligarchy enacted power-consolidation policies while the democracy drifted toward inequality without self-correction. This is a capability-dependent effect — the 30B base model (3B active) did not produce it.
+
+The implication: the structural signal may require sufficient model capability to emerge. A model needs enough reasoning depth to identify and act on permission asymmetries strategically. The 30B MoE model (3B active) may simply not have the capacity to plan around institutional structure.
+
+### Revised comparison table
+
+| Metric | Claude (RLHF) | 30B MoE Base | 72B True Base | 72B Abliterated |
+|--------|--------------|-------------|--------------|-----------------|
+| Democracy Gini | 0.016 | 0.128 | **0.273** | 0.059 |
+| Oligarchy Gini | 0.043 | **0.218** | 0.068 | 0.053 |
+| Oligarchy DMs | 0 | 10 | **0** | 1 |
+| Power-consolidation policies | 0 | 0 | **2** | 0 |
+| Democracy Gov Part | 1.00 | 0.67 | 1.00 | 1.00 |
+| Oligarchy Gov Part | 2.00 | 0.33 | 1.00 | 1.00 |
+| Behavioral uniformity | High | Low | Low | High |
+
+### What this seems to mean
+
+1. **Instruction tuning, not safety training, is the primary source of cooperative behavioral uniformity.** The abliterated model (instruction-tuned, safety-removed) produces Claude-like results. The true base model (no instruction tuning) does not. This reframes the RLHF confound: it is the instruction-following capability that overwhelms structural incentives, not the safety guardrails specifically.
+
+2. **The 72B base model is the only condition that produced institutional power consolidation under neutral labels.** Enacting `Grant Moderation` and `Restrict Direct Messages` without any vocabulary priming is the strongest structural-emergence signal in the dataset so far. But it is one run with one model — a lead worth following, not a conclusion.
+
+3. **The structural signal is capability-dependent.** The 30B MoE base (3B active) did not produce the same institutional behavior. If structural emergence requires reasoning about permission asymmetries, then the threshold may be quite high.
+
+4. **The communication-channel result from the first 30B run did not replicate in the 72B run.** The "oligarchy shifts to DMs immediately" finding is less robust than it initially appeared. Channel selection may depend more on model-specific priors than on structural incentives.
+
+### Caveats
+
+- **N=1 for all conditions.** Every claim here rests on a single 5-round run per model. Nothing here is statistically robust.
+- **Model architecture confound.** The 30B MoE and 72B dense models differ in both architecture and scale. Comparing them requires assuming the behavioral differences are primarily about capability, not about MoE-specific artifacts.
+- **The 72B base model's power-consolidation policies could be stochastic.** One differently-sampled token could have changed the policy proposal. Replication across seeds is essential before treating this as a stable pattern.
+- **Short horizon.** Five rounds shows initial institutional formation, not long-term drift, decay, or institutional lock-in.
+- **Prompt sensitivity.** All models receive the same prompt structure, but base models and instruct models interpret prompts differently. The base models see the prompt as text to continue; the instruct model sees it as instructions to follow. This is an inherent confound in cross-model comparison.
+
+### What comes next
+
+The three-model comparison narrows the priority list:
+
+1. **Replicate the 72B base model result across seeds.** The power-consolidation finding is the most interesting signal. If it appears in 3+ of 10 runs, it is worth building on. If it appears in 1 of 10, it was noise.
+2. **Longer runs with the 72B base model.** Does the oligarchy continue consolidating power past round 5? Does the democracy self-correct its inequality?
+3. **Higher scarcity.** The current pool (10,000 across 9 agents with 100 each) is generous. Genuine resource pressure may amplify or suppress structural effects.
+4. **Larger populations.** Free-rider dynamics and coordination failures may only emerge at 10+ agents per society.

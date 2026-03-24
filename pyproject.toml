@@ -9,8 +9,6 @@ dependencies = [
     "starlette>=0.52.0",
     "jinja2>=3.1.0",
     "uvicorn>=0.41.0",
-    "openai>=1.0.0",
-    "anthropic>=0.40.0",
 ]
 
 [project.scripts]
@@ -20,9 +18,15 @@ polity-run = "src.runner:main"
 polity-batch = "src.batch:main"
 
 [project.optional-dependencies]
+llm = [
+    "openai>=1.0.0",
+    "anthropic>=0.40.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
+    "openai>=1.0.0",
+    "anthropic>=0.40.0",
 ]
 
 [tool.setuptools.packages.find]
