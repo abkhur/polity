@@ -2,9 +2,9 @@
 
 An alignment research prototype disguised as a multiplayer simulation.
 
-Polity is a round-based multi-agent institutional sandbox for exploring whether harmful social orders might emerge from interacting LLM agents under scarcity, unequal power, persistent memory, and structured social interaction. The working hypothesis is that some alignment failures may appear not only at the level of individual agents, but also at the level of institutions, incentives, and collective dynamics.
+Polity is a round-based multi-agent institutional sandbox for testing whether institution-level effects emerge when LLM agents interact under scarcity, unequal permissions, persistent memory, and structured social interaction. The current claim is narrower than "I found institutional misalignment": Polity is trying to make structural asymmetries experimentally legible and measure when they appear, disappear, or get washed out by framing and model training regime.
 
-Most alignment work evaluates single models in isolation. Polity asks a different question: what happens when constrained agents are placed inside social conditions that may reward hierarchy, coercion, deception, or exclusion? The project is meant to make that question testable, not to assume the answer in advance.
+Most alignment work evaluates single models in isolation. Polity asks a different question: what changes when constrained agents are placed inside social conditions that may reward hierarchy, coercion, exclusion, or coordination failure? The project is meant to make that question testable, not to assume the answer in advance.
 
 **Docs:**
 - [docs/findings.md](docs/findings.md) -- experiment results, caveats, and working interpretations
@@ -15,15 +15,17 @@ Most alignment work evaluates single models in isolation. Polity asks a differen
 
 ## Current Evidence
 
-Current evidence is promising but still thin. All LLM results come from short 5-round, 3-agent-per-society runs with `N=1` per condition. The strongest claims are about confounds and methodology, not about settled institutional dynamics.
+Current evidence is promising but still thin. All LLM results come from short 5-round, 3-agent-per-society runs with `N=1` per condition. The README only summarizes the top-level empirical picture; [docs/findings.md](docs/findings.md) is the canonical run-by-run record with tables, caveats, and changing interpretations.
 
-1. **Vocabulary priming dominates labeled runs.** A labeled Claude Sonnet run produced dramatic behavioral divergence (oligarchs colluding via DMs, democrats cooperating publicly). A neutral-label ablation collapsed most of that divergence — all three societies proposed cooperative policies and behaved similarly. The labels, not the permissions, were doing most of the work.
-2. **Instruction tuning, not safety training, drives behavioral uniformity.** A Qwen2.5-72B-Instruct model with safety training specifically removed (abliterated) produced results nearly identical to Claude Sonnet under neutral labels: low inequality, high governance participation, cooperative policies everywhere. The cooperative behavioral prior comes from instruction tuning itself.
-3. **A 72B true base model produced the only structural power-consolidation under neutral labels.** Qwen2.5-72B (no instruction tuning, no safety training) enacted `Grant Moderation to Role-A Agents` and `Restrict Direct Messages` in the oligarchy — expanding its own structural advantage — while the democracy drifted to the highest inequality in the dataset (Gini 0.273). Neither Claude, the abliterated instruct model, nor the smaller 30B base model produced anything similar.
-4. **The structural signal appears capability-dependent.** The 30B MoE base model (3B active parameters) did not produce the same institutional behavior as the 72B dense base. Strategic exploitation of permission asymmetries may require sufficient reasoning depth.
-5. **Working hypothesis:** instruction-tuning cooperative priors mask structural institutional effects that become visible in sufficiently capable base models. This is one run per condition — a lead to follow, not a conclusion.
+1. **Vocabulary priming is a major confound.** A labeled Claude Sonnet run showed dramatic divergence, while a later neutral-label, equal-start Claude run collapsed most of that effect. The current setup is clearly framing-sensitive.
+2. **Instruction tuning currently looks more important than safety removal for behavioral uniformity.** Under neutral labels, Claude and a 72B abliterated instruct model both produced broadly cooperative, low-inequality runs across societies.
+3. **A single 72B true base run produced the clearest explicit structural-emergence lead so far.** Under neutral labels, it enacted `Grant Moderation to Role-A Agents` and `Restrict Direct Messages` in the oligarchy. That is the strongest current signal in the dataset, but it is still one run.
+4. **Communication-channel effects are currently noisy and model-specific.** The early "oligarchy goes private" pattern did not survive later comparisons, so it should be treated as a side observation rather than a headline result.
+5. **Working hypothesis:** instruct / cooperative-assistant priors may wash out some institution-level behavior, causing instruct/RLHF-only evaluations to understate multi-agent risk. Immediate priority: replicate the 72B base condition across seeds, longer horizons, harsher scarcity, and larger populations with predeclared outcome criteria.
 
-Full analysis and caveats: [docs/findings.md](docs/findings.md)
+Full empirical record: [docs/findings.md](docs/findings.md)
+
+Right now the strongest contribution is the sandbox plus a plausible methodological warning, not proof that models spontaneously invent bad institutions.
 
 ---
 
@@ -53,7 +55,7 @@ With `--neutral-labels`, role names and society names are replaced with sterile 
 | **Policy access** | All agents | Oligarchs only | All agents |
 | **Framing** | Democratic labels and role names | Oligarchic labels and role names | Minimal institutional framing |
 
-The ablation runner (`--equal-start`, `--start-resources`, `--total-resources`) equalizes resource conditions so the permission structure can be varied more cleanly. All reported experimental results use equal starting conditions, but other confounds still remain: model family, short horizon, prompt interpretation, and run-to-run variance.
+The ablation runner (`--equal-start`, `--start-resources`, `--total-resources`) equalizes resource conditions so the permission structure can be varied more cleanly. All of the later controlled comparison runs use equal starting conditions, but the original labeled Claude proof-of-concept did not; other confounds still remain, including model family, short horizon, prompt interpretation, and run-to-run variance.
 
 ---
 
@@ -257,7 +259,8 @@ docs/              research memo, findings, and roadmap
 ## Threats to Validity
 
 - **Vocabulary priming is a confirmed confound.** The labeled-to-neutral comparison changes behavior enough that any structural claim needs explicit framing controls.
-- **Instruction-tuning cooperative priors mask structural effects.** Both RLHF and abliterated instruct models produce uniformly cooperative behavior. The three-model comparison suggests this comes from instruction tuning, not safety training specifically.
+- **Instruction-tuning cooperative priors may wash out structural effects.** Both RLHF and abliterated instruct models produce uniformly cooperative behavior. The three-model comparison suggests this comes from instruction tuning, not safety training specifically.
+- **Communication-channel effects are noisy.** Oligarchy-heavy DM use appeared in some runs and disappeared in others, including the strongest 72B base run.
 - **`N=1` for every condition.** Each model-condition pair has one 5-round run. The 72B base model's power-consolidation finding is a single observation, not a replicated result.
 - **Model architecture and capability confounds.** The 30B MoE (3B active) and 72B dense models differ in both architecture and scale. Behavioral differences between them could reflect reasoning capacity, architecture-specific priors, or both.
 - **Short time horizon.** Five rounds shows initial institutional formation, not long-term drift, self-correction, or lock-in.
@@ -267,7 +270,7 @@ docs/              research memo, findings, and roadmap
 
 ---
 
-The multiplayer simulation is the vehicle. The hoped-for research contribution is a better way to study institutional failure modes in multi-agent systems.
+The multiplayer simulation is the vehicle. The current research contribution is an ablation-ready way to study institution-level behavior in multi-agent systems, even while the empirical results are still preliminary.
 
 ---
 

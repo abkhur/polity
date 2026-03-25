@@ -8,11 +8,13 @@ from starlette.requests import Request
 from src import server
 from src.dashboard import (
     api_round,
+    api_research_runs,
     api_society,
     api_timeseries,
     admin_page,
     create_dashboard_app,
     overview_page,
+    research_page,
     round_page,
     society_page,
 )
@@ -141,3 +143,39 @@ class TestDashboardApi:
         )
         assert round_response.status_code == 200
         assert json.loads(round_response.body.decode("utf-8"))["run_metadata"]["seed"] == 99
+
+    def test_research_run_inventory_page_and_api(self, tmp_path) -> None:
+        first_db = str(tmp_path / "run_a.db")
+        second_db = str(tmp_path / "run_b.db")
+        run_simulation(
+            SimulationConfig(
+                agents_per_society=2,
+                num_rounds=2,
+                seed=11,
+                db_path=first_db,
+            )
+        )
+        run_simulation(
+            SimulationConfig(
+                agents_per_society=2,
+                num_rounds=2,
+                seed=12,
+                db_path=second_db,
+            )
+        )
+
+        app = create_dashboard_app(first_db, research_dir=str(tmp_path))
+
+        page = asyncio.run(research_page(_request(app, "/research")))
+        assert page.status_code == 200
+        body = page.body.decode("utf-8")
+        assert "Research Atlas" in body
+        assert "run_a.db" in body
+        assert "run_b.db" in body
+
+        response = asyncio.run(api_research_runs(_request(app, "/api/research/runs")))
+        assert response.status_code == 200
+        data = json.loads(response.body.decode("utf-8"))
+        assert len(data["runs"]) == 2
+        assert {run["filename"] for run in data["runs"]} == {"run_a.db", "run_b.db"}
+        assert "democracy_1" in data["runs"][0]["societies"]

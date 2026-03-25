@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 from typing import Any
 from starlette.applications import Starlette
@@ -20,6 +21,16 @@ from .run_metadata import get_run_metadata
 BASE_DIR = Path(__file__).resolve().parent.parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
+RESEARCH_DIR = BASE_DIR / "important_runs"
+SOCIETY_ORDER = ("democracy_1", "oligarchy_1", "blank_slate_1")
+SOCIETY_LABELS = {
+    "democracy_1": "Democracy",
+    "oligarchy_1": "Oligarchy",
+    "blank_slate_1": "Blank Slate",
+}
+NEUTRAL_HINTS = ("role-a", "role-b", "society-alpha", "society-beta", "society-gamma")
+LABELED_HINTS = ("oligarch", "oligarchy", "democracy", "democratic", "blank slate", "citizen")
+POWER_POLICY_HINTS = ("grant moderation", "restrict direct messages", "surveillance")
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
@@ -29,6 +40,377 @@ def _format_json(value: Any) -> str:
 
 
 templates.env.filters["to_pretty_json"] = _format_json
+
+
+def _db_has_table(db: sqlite3.Connection, name: str) -> bool:
+    row = db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (name,),
+    ).fetchone()
+    return row is not None
+
+
+def _db_columns(db: sqlite3.Connection, table_name: str) -> set[str]:
+    return {row[1] for row in db.execute(f"PRAGMA table_info({table_name})").fetchall()}
+
+
+def _research_dir(request: Request) -> Path:
+    configured = getattr(request.app.state, "research_dir", None)
+    return Path(configured) if configured else RESEARCH_DIR
+
+
+def _short_model_name(model: str | None) -> str:
+    if not model:
+        return "Unknown"
+    return model.split("/")[-1]
+
+
+def _metric_value(metrics: dict[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        value = metrics.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+    return None
+
+
+def _read_run_metadata_db(db: sqlite3.Connection) -> dict[str, Any] | None:
+    if not _db_has_table(db, "run_metadata"):
+        return None
+
+    row = db.execute("SELECT * FROM run_metadata WHERE id = 1").fetchone()
+    if row is None:
+        return None
+
+    metadata = dict(row)
+    for key in ("neutral_labels", "equal_start", "completion_mode"):
+        if key in metadata and metadata[key] is not None:
+            metadata[key] = bool(metadata[key])
+    return metadata
+
+
+def _round1_thoughts_db(db: sqlite3.Connection) -> list[str]:
+    if not _db_has_table(db, "llm_usage"):
+        return []
+    columns = _db_columns(db, "llm_usage")
+    if "round_number" not in columns or "thoughts" not in columns:
+        return []
+
+    rows = db.execute(
+        """
+        SELECT thoughts
+        FROM llm_usage
+        WHERE round_number = 1 AND thoughts IS NOT NULL AND thoughts != ''
+        ORDER BY id ASC
+        LIMIT 6
+        """
+    ).fetchall()
+    return [row["thoughts"] for row in rows]
+
+
+def _infer_neutral_labels(
+    db: sqlite3.Connection, run_metadata: dict[str, Any] | None
+) -> tuple[bool | None, str]:
+    if run_metadata and run_metadata.get("neutral_labels") is not None:
+        return bool(run_metadata["neutral_labels"]), "metadata"
+
+    joined = " || ".join(thought.lower() for thought in _round1_thoughts_db(db))
+    if not joined:
+        return None, "unknown"
+
+    has_neutral = any(token in joined for token in NEUTRAL_HINTS)
+    has_labeled = any(token in joined for token in LABELED_HINTS)
+    if has_neutral and not has_labeled:
+        return True, "inferred"
+    if has_labeled and not has_neutral:
+        return False, "inferred"
+    return None, "unknown"
+
+
+def _infer_equal_start(
+    db: sqlite3.Connection, run_metadata: dict[str, Any] | None
+) -> tuple[bool | None, str]:
+    if run_metadata and run_metadata.get("equal_start") is not None:
+        return bool(run_metadata["equal_start"]), "metadata"
+
+    if _db_has_table(db, "round_summaries") and "summary" in _db_columns(db, "round_summaries"):
+        rows = db.execute(
+            """
+            SELECT
+                json_extract(summary, '$.initial_total_resources') AS initial_total_resources,
+                json_extract(summary, '$.total_resources') AS total_resources
+            FROM round_summaries rs
+            JOIN rounds r ON r.id = rs.round_id
+            WHERE r.round_number = 1
+            ORDER BY rs.id ASC
+            """
+        ).fetchall()
+        initial_values = [row["initial_total_resources"] for row in rows if row["initial_total_resources"] is not None]
+        if initial_values:
+            return len(set(initial_values)) == 1, "inferred"
+        total_values = [row["total_resources"] for row in rows if row["total_resources"] is not None]
+        if total_values and max(total_values) - min(total_values) >= 3000:
+            return False, "inferred"
+
+    joined = " || ".join(thought.lower() for thought in _round1_thoughts_db(db))
+    if "100 resources" in joined:
+        return True, "inferred"
+    return None, "unknown"
+
+
+def _research_run_summary(db_path: Path) -> dict[str, Any] | None:
+    db = sqlite3.connect(db_path)
+    db.row_factory = sqlite3.Row
+    try:
+        if not _db_has_table(db, "round_summaries") or not _db_has_table(db, "rounds"):
+            return None
+
+        run_metadata = _read_run_metadata_db(db) or {}
+
+        strategy = run_metadata.get("strategy")
+        model = run_metadata.get("model")
+        provider = run_metadata.get("provider")
+        if _db_has_table(db, "llm_usage"):
+            llm_row = db.execute(
+                """
+                SELECT model, provider, COUNT(*) AS call_count
+                FROM llm_usage
+                GROUP BY model, provider
+                ORDER BY call_count DESC, id ASC
+                LIMIT 1
+                """
+            ).fetchone()
+            if llm_row is not None:
+                model = model or llm_row["model"]
+                provider = provider or llm_row["provider"]
+                strategy = strategy or "llm"
+
+        llm_calls = 0
+        fallbacks = 0
+        parse_errors = 0
+        if _db_has_table(db, "llm_usage"):
+            usage_row = db.execute(
+                """
+                SELECT
+                    COUNT(*) AS call_count,
+                    COALESCE(SUM(fallback_used), 0) AS fallbacks,
+                    COALESCE(SUM(CASE WHEN error IS NOT NULL AND error != '' THEN 1 ELSE 0 END), 0) AS parse_errors
+                FROM llm_usage
+                """
+            ).fetchone()
+            if usage_row is not None:
+                llm_calls = int(usage_row["call_count"] or 0)
+                fallbacks = int(usage_row["fallbacks"] or 0)
+                parse_errors = int(usage_row["parse_errors"] or 0)
+
+        neutral_labels, neutral_source = _infer_neutral_labels(db, run_metadata)
+        equal_start, equal_start_source = _infer_equal_start(db, run_metadata)
+
+        last_summary_round_row = db.execute(
+            """
+            SELECT MAX(r.round_number) AS round_number
+            FROM round_summaries rs
+            JOIN rounds r ON r.id = rs.round_id
+            """
+        ).fetchone()
+        last_summary_round = int(last_summary_round_row["round_number"] or 0)
+        if last_summary_round <= 0:
+            return None
+
+        societies: dict[str, dict[str, Any]] = {}
+        if _db_has_table(db, "societies"):
+            for row in db.execute(
+                "SELECT id, governance_type FROM societies ORDER BY id ASC"
+            ).fetchall():
+                societies[row["id"]] = {
+                    "society_id": row["id"],
+                    "governance_type": row["governance_type"],
+                    "label": SOCIETY_LABELS.get(row["id"], row["id"]),
+                    "final_metrics": {},
+                    "communication": {"public_count": 0, "dm_count": 0, "public_share": None},
+                    "enacted_policies": [],
+                    "power_policy_count": 0,
+                    "final_resources": [],
+                }
+
+        if "summary" in _db_columns(db, "round_summaries"):
+            for row in db.execute(
+                """
+                SELECT rs.society_id, summary
+                FROM round_summaries rs
+                JOIN rounds r ON r.id = rs.round_id
+                WHERE r.round_number = ?
+                ORDER BY rs.id ASC
+                """,
+                (last_summary_round,),
+            ).fetchall():
+                summary = json.loads(row["summary"])
+                metrics = summary.get("metrics", {})
+                society = societies.setdefault(
+                    row["society_id"],
+                    {
+                        "society_id": row["society_id"],
+                        "governance_type": summary.get("governance_type"),
+                        "label": SOCIETY_LABELS.get(row["society_id"], row["society_id"]),
+                        "communication": {"public_count": 0, "dm_count": 0, "public_share": None},
+                        "enacted_policies": [],
+                        "power_policy_count": 0,
+                        "final_resources": [],
+                    },
+                )
+                society["governance_type"] = society.get("governance_type") or summary.get("governance_type")
+                society["final_metrics"] = {
+                    "inequality_gini": _metric_value(metrics, "inequality_gini"),
+                    "governance_actions_per_agent": _metric_value(
+                        metrics, "governance_action_rate", "governance_engagement"
+                    ),
+                    "governance_participation_rate": _metric_value(
+                        metrics, "governance_participation_rate"
+                    ),
+                    "top_agent_resource_share": _metric_value(
+                        metrics, "top_agent_resource_share", "resource_concentration"
+                    ),
+                    "policy_block_rate": _metric_value(metrics, "policy_block_rate"),
+                }
+                society["ideology_name"] = summary.get("ideology_compass", {}).get("ideology_name")
+
+        if _db_has_table(db, "queued_actions"):
+            for row in db.execute(
+                """
+                SELECT
+                    society_id,
+                    SUM(CASE WHEN action_type = 'post_public_message' THEN 1 ELSE 0 END) AS public_count,
+                    SUM(CASE WHEN action_type = 'send_dm' THEN 1 ELSE 0 END) AS dm_count
+                FROM queued_actions
+                GROUP BY society_id
+                ORDER BY society_id ASC
+                """
+            ).fetchall():
+                society = societies.setdefault(
+                    row["society_id"],
+                    {
+                        "society_id": row["society_id"],
+                        "label": SOCIETY_LABELS.get(row["society_id"], row["society_id"]),
+                        "final_metrics": {},
+                        "enacted_policies": [],
+                        "power_policy_count": 0,
+                        "final_resources": [],
+                    },
+                )
+                public_count = int(row["public_count"] or 0)
+                dm_count = int(row["dm_count"] or 0)
+                message_total = public_count + dm_count
+                society["communication"] = {
+                    "public_count": public_count,
+                    "dm_count": dm_count,
+                    "public_share": (public_count / message_total) if message_total else None,
+                }
+
+        if _db_has_table(db, "policies"):
+            enacted_rows = db.execute(
+                """
+                SELECT society_id, title
+                FROM policies
+                WHERE status = 'enacted'
+                ORDER BY society_id ASC, created_round_id ASC, id ASC
+                """
+            ).fetchall()
+            for row in enacted_rows:
+                society = societies.setdefault(
+                    row["society_id"],
+                    {
+                        "society_id": row["society_id"],
+                        "label": SOCIETY_LABELS.get(row["society_id"], row["society_id"]),
+                        "final_metrics": {},
+                        "communication": {"public_count": 0, "dm_count": 0, "public_share": None},
+                        "power_policy_count": 0,
+                        "final_resources": [],
+                    },
+                )
+                title = row["title"]
+                society.setdefault("enacted_policies", []).append(title)
+                if any(hint in title.lower() for hint in POWER_POLICY_HINTS):
+                    society["power_policy_count"] = int(society.get("power_policy_count", 0)) + 1
+
+        if _db_has_table(db, "agents"):
+            for row in db.execute(
+                """
+                SELECT society_id, name, resources
+                FROM agents
+                WHERE status = 'active'
+                ORDER BY society_id ASC, resources DESC, name ASC
+                """
+            ).fetchall():
+                society = societies.setdefault(
+                    row["society_id"],
+                    {
+                        "society_id": row["society_id"],
+                        "label": SOCIETY_LABELS.get(row["society_id"], row["society_id"]),
+                        "final_metrics": {},
+                        "communication": {"public_count": 0, "dm_count": 0, "public_share": None},
+                        "enacted_policies": [],
+                        "power_policy_count": 0,
+                    },
+                )
+                society.setdefault("final_resources", []).append(
+                    {"name": row["name"], "resources": row["resources"]}
+                )
+
+        self_dm_count = 0
+        if _db_has_table(db, "queued_actions") and "payload" in _db_columns(db, "queued_actions"):
+            self_dm_row = db.execute(
+                """
+                SELECT COUNT(*) AS self_dm_count
+                FROM queued_actions
+                WHERE action_type = 'send_dm'
+                  AND json_extract(payload, '$.target_agent_id') = agent_id
+                """
+            ).fetchone()
+            self_dm_count = int(self_dm_row["self_dm_count"] or 0) if self_dm_row else 0
+
+        ordered_societies = {
+            sid: societies[sid]
+            for sid in SOCIETY_ORDER
+            if sid in societies
+        }
+        for sid, society in societies.items():
+            if sid not in ordered_societies:
+                ordered_societies[sid] = society
+
+        return {
+            "filename": db_path.name,
+            "path": str(db_path),
+            "strategy": strategy,
+            "model": model,
+            "model_short": _short_model_name(model),
+            "provider": provider,
+            "seed": run_metadata.get("seed"),
+            "git_sha": run_metadata.get("git_sha"),
+            "created_at": run_metadata.get("created_at"),
+            "neutral_labels": neutral_labels,
+            "neutral_labels_source": neutral_source,
+            "equal_start": equal_start,
+            "equal_start_source": equal_start_source,
+            "last_summary_round": last_summary_round,
+            "llm_calls": llm_calls,
+            "fallbacks": fallbacks,
+            "parse_errors": parse_errors,
+            "self_dm_count": self_dm_count,
+            "societies": ordered_societies,
+        }
+    finally:
+        db.close()
+
+
+def _research_runs(research_dir: Path) -> list[dict[str, Any]]:
+    runs: list[dict[str, Any]] = []
+    if not research_dir.exists():
+        return runs
+
+    for db_path in sorted(research_dir.glob("*.db")):
+        summary = _research_run_summary(db_path)
+        if summary is not None:
+            runs.append(summary)
+    return runs
 
 
 def _ensure_runtime(db_path: str | None = None) -> None:
@@ -610,12 +992,39 @@ async def compare_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(request, "compare.html", context)
 
 
-def create_dashboard_app(db_path: str | None = None) -> Starlette:
+async def research_page(request: Request) -> HTMLResponse:
+    research_dir = _research_dir(request)
+    runs = _research_runs(research_dir)
+    context = {
+        "request": request,
+        "run_metadata": None,
+        "research_dir": str(research_dir),
+        "runs": runs,
+        "run_count": len(runs),
+        "neutral_run_count": sum(1 for run in runs if run["neutral_labels"] is True),
+        "equal_start_run_count": sum(1 for run in runs if run["equal_start"] is True),
+        "society_order": SOCIETY_ORDER,
+        "society_labels": SOCIETY_LABELS,
+    }
+    return templates.TemplateResponse(request, "research.html", context)
+
+
+async def api_research_runs(request: Request) -> JSONResponse:
+    research_dir = _research_dir(request)
+    runs = _research_runs(research_dir)
+    return JSONResponse({"research_dir": str(research_dir), "runs": runs})
+
+
+def create_dashboard_app(
+    db_path: str | None = None,
+    research_dir: str | None = None,
+) -> Starlette:
     server.set_db(init_db(Path(db_path) if db_path else DEFAULT_DB_PATH))
     app = Starlette(
         debug=True,
         routes=[
             Route("/", overview_page),
+            Route("/research", research_page),
             Route("/compare", compare_page),
             Route("/rounds", rounds_index),
             Route("/agents", agents_index),
@@ -629,9 +1038,11 @@ def create_dashboard_app(db_path: str | None = None) -> Starlette:
             Route("/api/rounds/{round_number:int}", api_round),
             Route("/api/admin/state", api_admin_state),
             Route("/api/timeseries", api_timeseries),
+            Route("/api/research/runs", api_research_runs),
         ],
     )
     app.state.db_path = db_path
+    app.state.research_dir = research_dir or str(RESEARCH_DIR)
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     return app
