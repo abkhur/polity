@@ -15,11 +15,11 @@ Most alignment work evaluates single models in isolation. Polity asks a differen
 
 ## Current Evidence
 
-Current evidence is promising but still thin. The main claims below are anchored to six preserved zero-fallback LLM runs in `important_runs/`: one labeled Claude proof of concept, one neutral-label Claude ablation, and four neutral-label model-comparison runs. Those curated model-condition comparisons are all short 5-round, 3-agent-per-society case studies with `N=1`. In local workspaces, ignored `runs/` directories may also contain duplicate copies, heuristic baselines, exploratory Claude partials, and fallback-heavy scratch runs. The README only summarizes the top-level empirical picture; [docs/findings.md](docs/findings.md) is the canonical interpretation record with tables, caveats, and audit notes.
+Current evidence is promising but still thin. The shared repo preserves six zero-fallback LLM runs in `important_runs/`: one labeled Claude proof of concept, one neutral-label Claude ablation, and four neutral-label model-comparison runs. Those curated model-condition comparisons are all short 5-round, 3-agent-per-society case studies with `N=1`. Outside the preserved snapshot, local workspaces may also contain duplicate copies, heuristic baselines, exploratory Claude partials, and fallback-heavy scratch runs in ignored `runs/` directories. The README only summarizes the top-level empirical picture; [docs/findings.md](docs/findings.md) is the canonical interpretation record with tables, caveats, and audit notes.
 
 1. **Vocabulary priming is a major confound.** A labeled Claude Sonnet run showed dramatic divergence, while a later neutral-label, equal-start Claude run collapsed most of that effect. Extra uncited Claude runs are noisier, so the safest read is framing sensitivity plus substantial variance.
 2. **Instruction tuning currently looks more important than safety removal for behavioral uniformity.** Under neutral labels, Claude and a 72B abliterated instruct model both produced broadly cooperative, low-inequality runs across societies.
-3. **A single 72B true base run produced the clearest explicit structural-emergence lead so far.** Under neutral labels, it enacted `Grant Moderation to Role-A Agents` in the oligarchy and also passed several control-flavored title-only policies, including `Restrict Direct Messages`. The moderation grant is the clearest mechanically meaningful signal in the dataset so far, but it is still one run.
+3. **A single 72B true base run produced the clearest explicit structural-emergence lead so far.** Under neutral labels, it enacted `Grant Moderation to Role-A Agents` in the oligarchy and also passed several control-flavored title-only policies, including `Restrict Direct Messages`. The moderation grant is the clearest mechanically meaningful signal in the dataset so far, but it was resolved in the final round, so the preserved run captures the power-expanding move itself rather than later exercise of that new authority.
 4. **Communication-channel effects are currently noisy and model-specific.** The early "oligarchy goes private" pattern did not survive later comparisons, so it should be treated as a side observation rather than a headline result.
 5. **Working hypothesis:** instruct / cooperative-assistant priors may wash out some institution-level behavior, causing instruct/RLHF-only evaluations to understate multi-agent risk. Immediate priority: replicate the 72B base condition across seeds, longer horizons, harsher scarcity, and larger populations with predeclared outcome criteria.
 
@@ -155,6 +155,8 @@ python -m pip install -e ".[llm]"   # OpenAI / Anthropic clients
 python -m pip install -e ".[dev]"   # tests + LLM clients
 ```
 
+Installed scripts are the clearest interface: `polity-run`, `polity-batch`, `polity-dashboard`, and `polity-server`. `python -m src --help` now prints the same top-level command map without trying to start the MCP server.
+
 ### Run a headless simulation
 
 ```bash
@@ -253,7 +255,7 @@ src/
   strategies/
     llm.py         LLM-backed agent strategy (OpenAI/Anthropic/vLLM)
 
-tests/             258 tests covering all simulation layers
+tests/             267 tests covering all simulation layers
 templates/         Jinja templates for the dashboard
 static/            dashboard CSS
 runs/              simulation databases (one per run, gitignored)

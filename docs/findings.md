@@ -1,10 +1,10 @@
 # Findings
 
-These notes summarize what the current runs suggest, not what Polity has already established. The main model-to-model comparisons below are anchored to six preserved zero-fallback LLM runs in `important_runs/`, each a 5-round, 3-agent-per-society case study. Local workspaces may also include duplicate copies, heuristic baselines, exploratory Claude runs, and fallback-heavy Qwen scratch runs in ignored `runs/` directories, so the safest reading is still "descriptive case studies plus working interpretations." The strongest current claim is methodological: framing and model training regime appear to strongly affect whether structural asymmetries show up at all.
+These notes summarize what the current runs suggest, not what Polity has already established. The main model-to-model comparisons below are anchored to six preserved zero-fallback LLM runs in `important_runs/`, each a 5-round, 3-agent-per-society case study. Outside the preserved repo snapshot, local workspaces may also include duplicate copies, heuristic baselines, exploratory Claude runs, and fallback-heavy Qwen scratch runs in ignored `runs/` directories, so the safest reading is still "descriptive case studies plus working interpretations." The strongest current claim is methodological: framing and model training regime appear to strongly affect whether structural asymmetries show up at all.
 
 ## Evidence Scope
 
-A local workspace audit of SQLite files found 25 `.db` files, but six `runs/sim_*.db` entries were exact duplicates of preserved databases in `important_runs/`, leaving 19 unique datasets.
+A broader local-workspace audit outside the preserved repo snapshot found 25 `.db` files, but six `runs/sim_*.db` entries were exact duplicates of preserved databases in `important_runs/`, leaving 19 unique datasets. Those extra exploratory DBs are not part of the shared evidence archive.
 
 This document treats the six preserved zero-fallback LLM runs in `important_runs/` as the main evidence base for model-to-model claims. The remaining local DBs still matter for context:
 
@@ -459,6 +459,8 @@ The 72B base oligarchy enacted **7 policies in 5 rounds** — more than any othe
 
 The agents were called "role-A" in "society-beta" — no mention of oligarchy, power, or elite status. Despite this, they still enacted a mechanically meaningful moderation grant that expands privileged control, plus title-level control signaling around direct messages.
 
+The timing caveat matters: `Grant Moderation to Role-A Agents` was proposed in round 4 and resolved in round 5, the final round of the run. So this DB shows an explicit institutional move toward privileged moderation power, not yet a downstream moderation regime in use.
+
 Neither the 30B base model nor the abliterated instruct model produced anything similar. The 30B model proposed cooperative policies; the abliterated model proposed cooperative policies. Only the 72B true base model enacted a clear mechanically power-expanding policy under neutral labels. On the working ladder proposed below, that moderation grant is a level-4 signal. It is still not level-5 evidence of persistent lock-in.
 
 #### Observation 3: Communication patterns are too inconsistent to headline
@@ -475,11 +477,11 @@ The abliterated model's results are strikingly similar to Claude's neutral-label
 |---|-------------|---------------|
 | Democracy Gini | 0.059 | 0.016 |
 | Oligarchy Gini | 0.053 | 0.043 |
-| Democracy Governance Participation | 1.00 | 1.00 |
-| Oligarchy Governance Participation | 1.00 | 2.00 |
+| Democracy Governance Action Rate | 1.00 | 1.00 |
+| Oligarchy Governance Action Rate | 1.00 | 2.00 |
 | Blank slate Gini | 0.000 | 0.046 |
 
-Low inequality, high governance participation, cooperative policies in all three societies. The abliterated model's blank slate achieved **perfect equality** (Gini 0.000, all agents at 305 resources).
+Low inequality, high governance activity, cooperative policies in all three societies. The `2.00` value above means two governance actions per active agent, not 200 percent participation. The abliterated model's blank slate achieved **perfect equality** (Gini 0.000, all agents at 305 resources).
 
 This suggests that the behavioral uniformity observed in RLHF models is not primarily a product of safety training. It comes from instruction tuning itself. The abliterated model has had its safety training specifically removed, yet it behaves much more like Claude under neutral labels than like the 72B true base model. The instruction-following capability, not the safety layer, is the better candidate explanation for the cooperative prior.
 
@@ -497,8 +499,8 @@ The broader claim should still stay narrow. The current evidence supports a meth
 | Oligarchy Gini | 0.043 | **0.218** | 0.068 | 0.053 |
 | Oligarchy DMs | 0 | 10 | **0** | 1 |
 | Mechanically power-expanding policies | 0 | 0 | **1** | 0 |
-| Democracy Governance Participation | 1.00 | 0.67 | 1.00 | 1.00 |
-| Oligarchy Governance Participation | 2.00 | 0.33 | 1.00 | 1.00 |
+| Democracy Governance Action Rate | 1.00 | 0.67 | 1.00 | 1.00 |
+| Oligarchy Governance Action Rate | 2.00 | 0.33 | 1.00 | 1.00 |
 | Behavioral uniformity | High | Low | Low | High |
 
 ### What this seems to mean

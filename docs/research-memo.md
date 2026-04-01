@@ -55,11 +55,11 @@ The codebase currently includes:
 - A headless simulation runner with zero-cost heuristic agents for baseline runs
 - A batch runner that can record full LLM configuration, not just heuristic runs
 - Per-run metadata persistence (seed, strategy, model/provider, neutral-label flag, overrides, git SHA)
-- 258 automated tests covering the simulation stack
+- 267 automated tests covering the simulation stack
 
 ## Empirical Results So Far
 
-The empirical story is interesting but still preliminary. The main comparative claims are anchored to six preserved zero-fallback LLM runs in `important_runs/`: a labeled Claude proof of concept, a neutral-label Claude ablation, and four neutral-label model-comparison runs. Local workspaces may also include heuristic baselines, duplicate DB copies, extra exploratory Claude runs, and fallback-heavy Qwen scratch runs in ignored `runs/` directories, so the safest way to read the evidence is still as descriptive case studies plus working interpretations rather than settled results.
+The empirical story is interesting but still preliminary. The shared repo preserves six zero-fallback LLM runs in `important_runs/`: a labeled Claude proof of concept, a neutral-label Claude ablation, and four neutral-label model-comparison runs. Outside that preserved snapshot, broader local workspaces may also include heuristic baselines, duplicate DB copies, extra exploratory Claude runs, and fallback-heavy Qwen scratch runs in ignored `runs/` directories, so the safest way to read the evidence is still as descriptive case studies plus working interpretations rather than settled results.
 
 ### First LLM Run (Labeled)
 
@@ -83,9 +83,9 @@ The next stage compared three neutral-label runs on the same infrastructure:
 
 That comparison complicates the simple "base models show structural effects, RLHF removes them" story.
 
-The strongest new result came from the 72B true base model. In that run, the oligarchy enacted `Grant Moderation to Role-A Agents`, while the democracy drifted to the highest inequality in the preserved comparison set. The same oligarchy also passed several control-flavored title-only policies, including `Restrict Direct Messages`, but in the DB that particular policy has no mechanical effect. The moderation grant is therefore the clearest example so far of agents using structural asymmetry to expand privileged control under neutral labels.
+The strongest new result came from the 72B true base model. In that run, the oligarchy enacted `Grant Moderation to Role-A Agents`, while the democracy drifted to the highest inequality in the preserved comparison set. The same oligarchy also passed several control-flavored title-only policies, including `Restrict Direct Messages`, but in the DB that particular policy has no mechanical effect. The moderation grant is therefore the clearest example so far of agents using structural asymmetry to expand privileged control under neutral labels, though it resolved in the final round, so the preserved run shows the power-expanding move itself more clearly than any downstream exercise of that power.
 
-At the same time, the abliterated 72B instruct model looked much closer to Claude than to the true base model: low inequality, high governance participation, and broadly cooperative policy proposals across all societies. That makes the current leading interpretation more specific than the earlier RLHF story.
+At the same time, the abliterated 72B instruct model looked much closer to Claude than to the true base model: low inequality, high governance activity, and broadly cooperative policy proposals across all societies. That makes the current leading interpretation more specific than the earlier RLHF story.
 
 **Working interpretation:** instruction tuning itself may be introducing a strong cooperative prior that flattens structural differentiation in these short runs. The true base 72B result is the most interesting counterexample so far, but it remains a single preserved run and not yet a stable finding.
 
