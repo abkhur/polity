@@ -3,6 +3,7 @@ src/__pycache__/
 .pytest_cache/
 *.py[cod]
 *.db
+!polity.db
 *.db-shm
 *.db-wal
 !important_runs/*.db
@@ -10,3 +11,4 @@ src/__pycache__/
 runs/
 docs/plans/
 CLAUDE.md
+.codex
