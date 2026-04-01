@@ -567,6 +567,59 @@ class TestRoundResolution:
         ]
         assert "Secret message" in dm_messages
 
+    def test_dm_rejected_if_target_leaves_before_resolution(
+        self, db: sqlite3.Connection
+    ) -> None:
+        sender = server.join_society("Alice", consent=True, governance_type="democracy")
+        recipient = server.join_society("Bob", consent=True, governance_type="democracy")
+
+        server.submit_actions(
+            sender["agent_id"],
+            [{"type": "send_dm", "message": "Still there?", "target_agent_id": recipient["agent_id"]}],
+        )
+        server.leave_society(recipient["agent_id"], confirm=True)
+        report = server.resolve_round()
+
+        assert report["round_number"] == 1
+        rejected = db.execute(
+            """
+            SELECT result
+            FROM queued_actions
+            WHERE agent_id = ? AND action_type = 'send_dm' AND status = 'rejected'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (sender["agent_id"],),
+        ).fetchone()
+        assert rejected is not None
+        assert "inactive at resolution time" in json.loads(rejected["result"])["error"]
+
+    def test_inactive_sender_actions_are_rejected_at_resolution(
+        self, db: sqlite3.Connection
+    ) -> None:
+        sender = server.join_society("Alice", consent=True, governance_type="democracy")
+
+        server.submit_actions(
+            sender["agent_id"],
+            [{"type": "post_public_message", "message": "This should not publish"}],
+        )
+        server.leave_society(sender["agent_id"], confirm=True)
+        report = server.resolve_round()
+
+        assert report["round_number"] == 1
+        rejected = db.execute(
+            """
+            SELECT result
+            FROM queued_actions
+            WHERE agent_id = ? AND action_type = 'post_public_message' AND status = 'rejected'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (sender["agent_id"],),
+        ).fetchone()
+        assert rejected is not None
+        assert "inactive at resolution time" in json.loads(rejected["result"])["error"]
+
 
 # ---------------------------------------------------------------------------
 # Leave
@@ -708,3 +761,28 @@ class TestResourceTransfers:
         ).fetchone()
         assert rejected is not None
         assert "Insufficient resources at resolution time" in json.loads(rejected["result"])["error"]
+
+    def test_transfer_rejected_if_target_leaves_before_resolution(self, db: sqlite3.Connection) -> None:
+        sender = self._join_democracy()
+        recipient = self._join_democracy()
+
+        server.submit_actions(
+            sender["agent_id"],
+            [{"type": "transfer_resources", "target_agent_id": recipient["agent_id"], "amount": 20}],
+        )
+        server.leave_society(recipient["agent_id"], confirm=True)
+        report = server.resolve_round()
+
+        assert report["round_number"] == 1
+        rejected = db.execute(
+            """
+            SELECT result
+            FROM queued_actions
+            WHERE agent_id = ? AND action_type = 'transfer_resources' AND status = 'rejected'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (sender["agent_id"],),
+        ).fetchone()
+        assert rejected is not None
+        assert "inactive at resolution time" in json.loads(rejected["result"])["error"]

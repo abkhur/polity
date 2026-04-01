@@ -1,6 +1,23 @@
 # Findings
 
-These notes summarize what the current runs suggest, not what Polity has already established. Most LLM conditions so far are single 5-round runs with 3 agents per society, so the safest reading is "descriptive case studies plus working interpretations." The strongest current claim is methodological: framing and model training regime appear to strongly affect whether structural asymmetries show up at all.
+These notes summarize what the current runs suggest, not what Polity has already established. The main model-to-model comparisons below are anchored to six preserved zero-fallback LLM runs in `important_runs/`, each a 5-round, 3-agent-per-society case study. Local workspaces may also include duplicate copies, heuristic baselines, exploratory Claude runs, and fallback-heavy Qwen scratch runs in ignored `runs/` directories, so the safest reading is still "descriptive case studies plus working interpretations." The strongest current claim is methodological: framing and model training regime appear to strongly affect whether structural asymmetries show up at all.
+
+## Evidence Scope
+
+A local workspace audit of SQLite files found 25 `.db` files, but six `runs/sim_*.db` entries were exact duplicates of preserved databases in `important_runs/`, leaving 19 unique datasets.
+
+This document treats the six preserved zero-fallback LLM runs in `important_runs/` as the main evidence base for model-to-model claims. The remaining local DBs still matter for context:
+
+- five heuristic baselines and substrate checks
+- four extra Claude exploratory runs, including one 2-round partial run
+- two fallback-heavy Qwen scratch runs where many or all LLM calls degraded to fallback behavior
+- the empty working `polity.db` and a small manual dashboard artifact
+
+Repo-wide, the broad qualitative story still mostly holds, but three wording changes matter:
+
+- `Restrict Direct Messages` in the 72B base run was a title-only policy with no mechanical effect in the DB.
+- "7 enacted policies in 5 rounds" is the high-water mark among the preserved zero-fallback LLM runs, not among every DB in the repo.
+- The preserved labeled-vs-neutral Claude pair is still informative, but the extra Claude runs show more variance than that clean pair alone.
 
 ## Notes on Interpretation
 
@@ -9,17 +26,21 @@ These notes summarize what the current runs suggest, not what Polity has already
 - `top_third_resource_share` (legacy `resource_concentration`, sometimes shortened below as `Top Third Share`) is the share of active-agent resources held by the top third of agents, not the single richest agent.
 - When this document talks about public versus private communication, it is using direct counts from `queued_actions` and, where available, `public_message_share` / `dm_message_share`, not the legacy `communication_openness` field.
 - Heuristic runs are useful substrate checks, but because the heuristic strategy contains governance-conditioned behavior, they are not direct evidence about what LLM agents will do.
+- Unless stated otherwise, `N=1` below refers to the curated preserved model-condition comparisons, not every local exploratory DB in `runs/`.
 
 ## Behavioral Changes (Refactor Notes)
 
 - **Resource transfer rejection (ab7f46b):** Transfers where the sender has insufficient resources are now strictly rejected instead of silently clamped to the available balance. Previously, attempting to transfer 80 with only 50 available would silently transfer 50; now it is rejected with a diagnostic. Runs prior to this change may show different transfer-resolution outcomes. This does not affect any preserved LLM runs (transfers were not a common LLM action), but should be noted if comparing heuristic runs across this boundary.
+- **Moderation scoping and ideology timing:** Moderation decisions are now validated and resolved within the originating society only, and moderated messages update ideology only when approved and published. Preserved runs do not rely on cross-society moderation, but future moderation-heavy runs are cleaner after this fix.
+- **Inactive-agent resolution:** Queued DMs, transfers, and moderation approvals now reject cleanly if a sender or target becomes inactive before resolution, instead of aborting the round with an exception.
+- **Round-scoped moderation summaries:** `moderation_rejection_rate` is now computed per round rather than cumulatively across the full database, so future summary tables are easier to interpret.
 
 ## Current Best-Supported Read
 
 - The project currently looks strongest as an ablation-ready sandbox for testing whether institutional effects emerge in multi-agent LLM systems.
-- Neutral relabeling clearly matters: the first Claude result mostly collapses when loaded labels are removed.
+- Neutral relabeling clearly matters: the first Claude result mostly collapses when loaded labels are removed, though the extra uncited Claude runs show that both labeled and neutral conditions still have noticeable variance.
 - Safety removal alone does not recover the true-base pattern: the 72B abliterated instruct model behaves much more like Claude than like the 72B true base model.
-- The 72B true base oligarchy is the strongest current lead because it is the only condition that produced explicit power-consolidation policies under neutral labels.
+- The 72B true base oligarchy is the strongest current lead because it is the only preserved zero-fallback condition that produced an explicit mechanically power-expanding policy under neutral labels.
 - The communication-channel story is weaker than it first looked. DM-heavy oligarchy behavior appears in some runs and disappears in others.
 
 ---
@@ -192,6 +213,12 @@ One plausible interpretation is that the RLHF prior pushed structurally advantag
 2. The neutral-label Claude run did not reproduce the labeled oligarchic behavior.
 3. If there is a structural effect in this Claude setup, it is much weaker than the label effect and currently easiest to see in resource outcomes rather than overt coercive behavior.
 
+### Repo-wide Claude note
+
+The preserved labeled-vs-neutral Claude pair is still the cleanest framing comparison, but it is not the whole Claude story in the repo. Additional uncited Claude DBs in `runs/` are mixed: multiple neutral-label runs remained fully public, while an extra labeled run enacted `Oligarch Resource Advantage` without reproducing the original DM-heavy oligarchy pattern.
+
+So the safest claim is "framing-sensitive and high-variance," not "labeled Claude deterministically produces private oligarchic coordination."
+
 ---
 
 ## Why a Training-Regime Confound Now Looks Plausible
@@ -326,7 +353,7 @@ The base-model agents still proposed cooperative-sounding policies, but the olig
 - **`N=1`.** One run, one seed. The round-1 DM pattern could still be stochastic.
 - **Capability gap.** Qwen3-30B-A3B is not a clean apples-to-apples comparison with Claude Sonnet.
 - **Short horizon.** Five rounds tells us about opening behavior, not long-term institutional drift.
-- **Self-messaging artifact.** Several agents sent DMs to themselves. That does not drive the main comparison here, but it should still be fixed in action validation.
+- **Self-messaging artifact.** Several agents sent DMs to themselves. That does not drive the main comparison here, and it has since been fixed in action validation, but the preserved run still contains the artifact.
 
 ### What comes next
 
@@ -396,7 +423,7 @@ Blank Slate         2   10   17%       3    1   75%        2    0   100%
 - Blank slate: `Resource Equity Policy`, `Resource Transparency and Management Policy`, `Resource Equity and Transparency Enhancement` (x2)
 
 **Qwen2.5-72B (true base):**
-- Oligarchy: `Gathering Cap`, `Resource Gather Cap`, `Resource Redistribution`, `Restrict Direct Messages`, `Enforce Resource Gather Cap`, `Promote Equality and Collaboration`, **`Grant Moderation to Role-A Agents`**
+- Oligarchy: `Gathering Cap`, `Resource Gather Cap`, `Resource Redistribution`, `Restrict Direct Messages` (title only; no mechanical effect), `Enforce Resource Gather Cap`, `Promote Equality and Collaboration`, **`Grant Moderation to Role-A Agents`**
 - Democracy: `Basic Resource Management Policy`, `Resource Sharing Policy`, `Enhanced Resource Sharing Policy`, `Collaborative Project Policy`
 - Blank slate: `Resource Redistribution Policy`, `Resource Tax`, `Gather Cap`
 
@@ -425,14 +452,14 @@ The abliterated instruct model and Claude both produce low inequality everywhere
 
 #### Observation 2: The 72B base oligarchy produced the clearest explicit power-consolidation signal
 
-The 72B base oligarchy enacted **7 policies in 5 rounds** — more than any other society in any run. Among them:
+The 72B base oligarchy enacted **7 policies in 5 rounds** — more than any other society in the preserved zero-fallback LLM comparison set. Among them:
 
-- **`Restrict Direct Messages`** — the oligarchy voted to restrict private communication
+- **`Restrict Direct Messages`** — title-only signaling; in this DB it did **not** mechanically restrict private communication
 - **`Grant Moderation to Role-A Agents`** — the oligarchy voted to give themselves content moderation power
 
-These are the first instances of power-consolidation policies enacted by agents under neutral labels. The agents were called "role-A" in "society-beta" — no mention of oligarchy, power, or elite status. Despite this, they enacted surveillance and moderation policies that expand their structural advantage.
+The agents were called "role-A" in "society-beta" — no mention of oligarchy, power, or elite status. Despite this, they still enacted a mechanically meaningful moderation grant that expands privileged control, plus title-level control signaling around direct messages.
 
-Neither the 30B base model nor the abliterated instruct model produced anything similar. The 30B model proposed cooperative policies; the abliterated model proposed cooperative policies. Only the 72B true base model enacted institutional power consolidation. On the working ladder proposed below, this is a level-4 signal. It is still not level-5 evidence of persistent lock-in.
+Neither the 30B base model nor the abliterated instruct model produced anything similar. The 30B model proposed cooperative policies; the abliterated model proposed cooperative policies. Only the 72B true base model enacted a clear mechanically power-expanding policy under neutral labels. On the working ladder proposed below, that moderation grant is a level-4 signal. It is still not level-5 evidence of persistent lock-in.
 
 #### Observation 3: Communication patterns are too inconsistent to headline
 
@@ -458,7 +485,7 @@ This suggests that the behavioral uniformity observed in RLHF models is not prim
 
 #### Observation 5: The cleanest current story is about training-regime sensitivity, not proof of institutional misalignment
 
-Across all conditions, only the Qwen2.5-72B (true base, no instruction tuning, no safety training) produced qualitatively different behavior across societies: the oligarchy enacted power-consolidation policies while the democracy drifted toward inequality without self-correction. That makes the 72B base run the most important lead in the dataset.
+Across all conditions, only the Qwen2.5-72B (true base, no instruction tuning, no safety training) produced qualitatively different behavior across societies: the oligarchy enacted a clear power-consolidation moderation grant, plus related control signaling, while the democracy drifted toward inequality without self-correction. That makes the 72B base run the most important lead in the dataset.
 
 The broader claim should still stay narrow. The current evidence supports a methodological warning more than a grand theory: single-agent assistant tuning may wash out institution-level behavior, causing instruct/RLHF-only evaluations to understate some multi-agent risks. Capability dependence is a plausible explanation for why only the 72B true base run shows this signal, but architecture and scale are confounded, so that remains an inference rather than a demonstrated fact.
 
@@ -469,7 +496,7 @@ The broader claim should still stay narrow. The current evidence supports a meth
 | Democracy Gini | 0.016 | 0.128 | **0.273** | 0.059 |
 | Oligarchy Gini | 0.043 | **0.218** | 0.068 | 0.053 |
 | Oligarchy DMs | 0 | 10 | **0** | 1 |
-| Power-consolidation policies | 0 | 0 | **2** | 0 |
+| Mechanically power-expanding policies | 0 | 0 | **1** | 0 |
 | Democracy Governance Participation | 1.00 | 0.67 | 1.00 | 1.00 |
 | Oligarchy Governance Participation | 2.00 | 0.33 | 1.00 | 1.00 |
 | Behavioral uniformity | High | Low | Low | High |
@@ -478,7 +505,7 @@ The broader claim should still stay narrow. The current evidence supports a meth
 
 1. **Instruction tuning, not safety training, is the cleanest current explanation for cooperative behavioral uniformity.** The abliterated model (instruction-tuned, safety-removed) produces Claude-like results. The true base model (no instruction tuning) does not.
 
-2. **The 72B base model is the only condition that currently reaches the level-4 threshold on explicit power-consolidation behavior under neutral labels.** Enacting `Grant Moderation` and `Restrict Direct Messages` without any vocabulary priming is the strongest structural-emergence lead in the dataset so far. But it is one run with one model.
+2. **The 72B base model is the only condition that currently reaches the level-4 threshold on explicit mechanically power-expanding behavior under neutral labels.** `Grant Moderation to Role-A Agents` is the clearest structural-emergence lead in the dataset so far. `Restrict Direct Messages` should be treated as title-only signaling in this run, not as evidence of working channel restriction. But it is still one run with one model.
 
 3. **Capability dependence is plausible, but not isolated.** The 30B MoE base (3B active) did not produce the same institutional behavior, but the comparison also changes architecture and scale.
 
@@ -486,9 +513,9 @@ The broader claim should still stay narrow. The current evidence supports a meth
 
 ### Caveats
 
-- **N=1 for all conditions.** Every claim here rests on a single 5-round run per model. Nothing here is statistically robust.
+- **N=1 for the preserved model-comparison conditions.** Every headline claim here rests on a single preserved 5-round run per model. Extra local exploratory DBs in `runs/` add context, not statistical robustness.
 - **Model architecture confound.** The 30B MoE and 72B dense models differ in both architecture and scale. Comparing them requires assuming the behavioral differences are primarily about capability, not about MoE-specific artifacts.
-- **The 72B base model's power-consolidation policies could be stochastic.** One differently-sampled token could have changed the policy proposal. Replication across seeds is essential before treating this as a stable pattern.
+- **The 72B base model's power-consolidation finding could be stochastic.** One differently-sampled token could have changed the policy proposal. Replication across seeds is essential before treating this as a stable pattern.
 - **Short horizon.** Five rounds shows initial institutional formation, not long-term drift, decay, or institutional lock-in.
 - **Prompt sensitivity.** All models receive the same prompt structure, but base models and instruct models interpret prompts differently. The base models see the prompt as text to continue; the instruct model sees it as instructions to follow. This is an inherent confound in cross-model comparison.
 

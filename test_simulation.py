@@ -53,7 +53,7 @@ def test_actions_resolve_on_next_round(tmp_path):
 
     next_round_state = server.get_turn_state(alice["agent_id"])
     assert next_round_state["round"]["number"] == 2
-    assert next_round_state["agent"]["resources"] == 130
+    assert next_round_state["agent"]["resources"] == 125
     assert next_round_state["society"]["total_resources"] == 9970
     assert next_round_state["visible_messages"]["public"][0]["message"] == "We should coordinate."
     assert next_round_state["last_round_summary"]["metrics"]["participation_rate"] == 0.5

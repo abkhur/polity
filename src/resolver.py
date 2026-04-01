@@ -58,14 +58,18 @@ def _create_next_round(previous_round_number: int) -> sqlite3.Row:
 
 
 def _get_active_agent(agent_id: str) -> dict[str, Any]:
-    db = get_db()
-    row = db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
-    if row is None:
+    agent = _get_agent(agent_id)
+    if agent is None:
         raise ValueError(f"Agent {agent_id} not found")
-    agent = dict(row)
     if agent["status"] != "active":
         raise ValueError(f"Agent {agent_id} is inactive")
     return agent
+
+
+def _get_agent(agent_id: str) -> dict[str, Any] | None:
+    db = get_db()
+    row = db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
+    return dict(row) if row else None
 
 
 def _get_society(society_id: str) -> dict[str, Any]:
@@ -234,16 +238,32 @@ def _handle_moderation_decisions(
         payload = _loads(row["payload"])
         msg_action_id = int(payload["message_action_id"])
         msg_row = db.execute("SELECT * FROM queued_actions WHERE id = ?", (msg_action_id,)).fetchone()
-        if msg_row is None or msg_row["moderation_status"] != "pending_review":
+        if msg_row is None:
+            _mark_action(row["id"], "rejected", {"error": "Message not found."})
+            continue
+        if msg_row["action_type"] != "post_public_message":
+            _mark_action(row["id"], "rejected", {"error": "Target action is not a moderated public message."})
+            continue
+        if msg_row["society_id"] != row["society_id"]:
+            _mark_action(row["id"], "rejected", {"error": "Cannot moderate a message from another society."})
+            continue
+        if msg_row["moderation_status"] != "pending_review":
             _mark_action(row["id"], "rejected", {"error": "Message not pending review."})
             continue
 
         msg_payload = _loads(msg_row["payload"])
-        msg_agent = _get_active_agent(msg_row["agent_id"])
+        msg_agent = _get_agent(msg_row["agent_id"])
+        if msg_agent is None or msg_agent["status"] != "active":
+            db.execute(
+                "UPDATE queued_actions SET moderation_status = 'rejected', result = ? WHERE id = ?",
+                (json.dumps({"message": msg_payload["message"], "moderation": "rejected"}), msg_action_id),
+            )
+            _mark_action(row["id"], "rejected", {"error": "Message sender is inactive."})
+            continue
         msg_embedding = embed_text(msg_payload["message"])
         db.execute(
-            "UPDATE queued_actions SET moderation_status = 'approved' WHERE id = ?",
-            (msg_action_id,),
+            "UPDATE queued_actions SET moderation_status = 'approved', result = ? WHERE id = ?",
+            (json.dumps({"message": msg_payload["message"], "moderation": "approved"}), msg_action_id),
         )
         db.execute(
             """
@@ -265,6 +285,7 @@ def _handle_moderation_decisions(
             },
             embedding=embedding_to_bytes(msg_embedding),
         )
+        update_agent_ideology(db, msg_row["agent_id"], msg_embedding)
         _emit_event(
             current_round["id"],
             row["society_id"],
@@ -291,13 +312,23 @@ def _handle_moderation_decisions(
         payload = _loads(row["payload"])
         msg_action_id = int(payload["message_action_id"])
         msg_row = db.execute("SELECT * FROM queued_actions WHERE id = ?", (msg_action_id,)).fetchone()
-        if msg_row is None or msg_row["moderation_status"] != "pending_review":
+        if msg_row is None:
+            _mark_action(row["id"], "rejected", {"error": "Message not found."})
+            continue
+        if msg_row["action_type"] != "post_public_message":
+            _mark_action(row["id"], "rejected", {"error": "Target action is not a moderated public message."})
+            continue
+        if msg_row["society_id"] != row["society_id"]:
+            _mark_action(row["id"], "rejected", {"error": "Cannot moderate a message from another society."})
+            continue
+        if msg_row["moderation_status"] != "pending_review":
             _mark_action(row["id"], "rejected", {"error": "Message not pending review."})
             continue
 
+        msg_payload = _loads(msg_row["payload"])
         db.execute(
-            "UPDATE queued_actions SET moderation_status = 'rejected' WHERE id = ?",
-            (msg_action_id,),
+            "UPDATE queued_actions SET moderation_status = 'rejected', result = ? WHERE id = ?",
+            (json.dumps({"message": msg_payload["message"], "moderation": "rejected"}), msg_action_id),
         )
         _emit_event(
             current_round["id"],
@@ -349,7 +380,6 @@ def _handle_public_messages(
                     "system",
                     {"from_agent_id": row["agent_id"], "message_action_id": row["id"]},
                 )
-                update_agent_ideology(db, row["agent_id"], msg_embedding)
                 report["resolved"]["messages"].append(
                     {
                         "type": "public",
@@ -395,8 +425,20 @@ def _handle_direct_messages(
     db = get_db()
     for row in rows:
         payload = _loads(row["payload"])
-        agent = _get_active_agent(row["agent_id"])
-        recipient = _get_active_agent(payload["target_agent_id"])
+        agent = _get_agent(row["agent_id"])
+        if agent is None or agent["status"] != "active":
+            _mark_action(row["id"], "rejected", {"error": "Submitting agent is inactive at resolution time."})
+            continue
+        recipient = _get_agent(payload["target_agent_id"])
+        if recipient is None:
+            _mark_action(row["id"], "rejected", {"error": "Target agent not found."})
+            continue
+        if recipient["status"] != "active":
+            _mark_action(row["id"], "rejected", {"error": "Target agent is inactive at resolution time."})
+            continue
+        if recipient["society_id"] != row["society_id"]:
+            _mark_action(row["id"], "rejected", {"error": "Cross-society direct messages are not enabled yet."})
+            continue
         dm_embedding = embed_text(payload["message"])
         db.execute(
             """
@@ -597,8 +639,20 @@ def _handle_resource_transfers(
     db = get_db()
     for row in rows:
         payload = _loads(row["payload"])
-        sender = _get_active_agent(row["agent_id"])
-        target = _get_active_agent(payload["target_agent_id"])
+        sender = _get_agent(row["agent_id"])
+        if sender is None or sender["status"] != "active":
+            _mark_action(row["id"], "rejected", {"error": "Submitting agent is inactive at resolution time."})
+            continue
+        target = _get_agent(payload["target_agent_id"])
+        if target is None:
+            _mark_action(row["id"], "rejected", {"error": "Target agent not found."})
+            continue
+        if target["status"] != "active":
+            _mark_action(row["id"], "rejected", {"error": "Target agent is inactive at resolution time."})
+            continue
+        if target["society_id"] != row["society_id"]:
+            _mark_action(row["id"], "rejected", {"error": "Cross-society transfers are not enabled yet."})
+            continue
         amount = int(payload["amount"])
         if sender["resources"] < amount:
             _mark_action(
@@ -638,6 +692,18 @@ def resolve_round(round_number: int | None = None) -> dict[str, Any]:
         }
 
     queued_rows = _queue_rows_for_round(current_round["id"])
+    actionable_rows: list[sqlite3.Row] = []
+    for row in queued_rows:
+        agent = _get_agent(row["agent_id"])
+        if agent is None or agent["status"] != "active":
+            _mark_action(
+                row["id"],
+                "rejected",
+                {"error": "Submitting agent is inactive at resolution time."},
+            )
+            continue
+        actionable_rows.append(row)
+
     report: dict[str, Any] = {
         "round_number": current_round["round_number"],
         "queued_action_count": len(queued_rows),
@@ -655,7 +721,7 @@ def resolve_round(round_number: int | None = None) -> dict[str, Any]:
     }
 
     grouped_actions: dict[str, list[sqlite3.Row]] = defaultdict(list)
-    for row in queued_rows:
+    for row in actionable_rows:
         grouped_actions[row["action_type"]].append(row)
 
     _handle_proposals(grouped_actions["propose_policy"], current_round, report)

@@ -50,22 +50,22 @@ The codebase currently includes:
 - An ablation runner with `--equal-start`, `--start-resources`, `--total-resources`, and `--neutral-labels`
 - LLM integration (OpenAI and Anthropic) with automatic fallback to heuristic agents
 - Tiered context assembly with token budgeting and semantic retrieval
-- Ideology drift tracking via sentence-transformer embeddings
+- Ideology drift tracking via sentence-transformer embeddings, with deterministic local fallback embeddings if the model is unavailable
 - A Starlette dashboard for replay and comparative inspection
 - A headless simulation runner with zero-cost heuristic agents for baseline runs
 - A batch runner that can record full LLM configuration, not just heuristic runs
 - Per-run metadata persistence (seed, strategy, model/provider, neutral-label flag, overrides, git SHA)
-- 248 automated tests covering the simulation stack
+- 258 automated tests covering the simulation stack
 
 ## Empirical Results So Far
 
-The empirical story is interesting but still preliminary. Most LLM conditions have only a single short run, so the safest way to read them is as descriptive case studies plus working interpretations.
+The empirical story is interesting but still preliminary. The main comparative claims are anchored to six preserved zero-fallback LLM runs in `important_runs/`: a labeled Claude proof of concept, a neutral-label Claude ablation, and four neutral-label model-comparison runs. Local workspaces may also include heuristic baselines, duplicate DB copies, extra exploratory Claude runs, and fallback-heavy Qwen scratch runs in ignored `runs/` directories, so the safest way to read the evidence is still as descriptive case studies plus working interpretations rather than settled results.
 
 ### First LLM Run (Labeled)
 
 A 5-round Claude Sonnet proof-of-concept (3 agents per society, 45 API calls, zero fallbacks) produced behavior that looked governance-appropriate: oligarchs coordinated privately, democrats communicated publicly, and blank-slate agents converged on participation rights.
 
-That run is best treated as a qualitative smoke test rather than a clean result. The primary confound is label leakage: the prompt explicitly called agents "oligarchs" or "citizens," so the observed divergence cannot be separated from vocabulary priming.
+That run is best treated as a qualitative smoke test rather than a clean result. The primary confound is label leakage: the prompt explicitly called agents "oligarchs" or "citizens," so the observed divergence cannot be separated from vocabulary priming. Repo-wide, the Claude evidence now looks framing-sensitive but also high-variance, not fully deterministic.
 
 ### Neutral Label Ablation
 
@@ -83,11 +83,11 @@ The next stage compared three neutral-label runs on the same infrastructure:
 
 That comparison complicates the simple "base models show structural effects, RLHF removes them" story.
 
-The strongest new result came from the 72B true base model. In that run, the oligarchy enacted `Grant Moderation to Role-A Agents` and `Restrict Direct Messages`, while the democracy drifted to the highest inequality in the dataset. Those are the clearest examples so far of agents using structural asymmetry to consolidate institutional power under neutral labels.
+The strongest new result came from the 72B true base model. In that run, the oligarchy enacted `Grant Moderation to Role-A Agents`, while the democracy drifted to the highest inequality in the preserved comparison set. The same oligarchy also passed several control-flavored title-only policies, including `Restrict Direct Messages`, but in the DB that particular policy has no mechanical effect. The moderation grant is therefore the clearest example so far of agents using structural asymmetry to expand privileged control under neutral labels.
 
 At the same time, the abliterated 72B instruct model looked much closer to Claude than to the true base model: low inequality, high governance participation, and broadly cooperative policy proposals across all societies. That makes the current leading interpretation more specific than the earlier RLHF story.
 
-**Working interpretation:** instruction tuning itself may be introducing a strong cooperative prior that flattens structural differentiation in these short runs. The true base 72B result is the most interesting counterexample so far, but it is still a single run and not yet a stable finding.
+**Working interpretation:** instruction tuning itself may be introducing a strong cooperative prior that flattens structural differentiation in these short runs. The true base 72B result is the most interesting counterexample so far, but it remains a single preserved run and not yet a stable finding.
 
 Full analysis with round-by-round metrics and caveats: [docs/findings.md](findings.md)
 
@@ -102,7 +102,7 @@ This matters for:
 - AI systems with role differentiation, delegated authority, or persistent shared memory
 - Alignment research that currently assumes the single-model lens is sufficient
 
-The strongest defensible claim today is not that LLMs reproduce human history one-to-one. It is that multi-agent evaluation appears highly sensitive to framing and model training regime. Labeling can dominate outcomes, and instruction tuning may suppress structural divergence that a sufficiently capable true base model can still show. That means multi-agent safety work may need tighter controls and broader model coverage than single-agent evaluation usually assumes.
+The strongest defensible claim today is not that LLMs reproduce human history one-to-one. It is that multi-agent evaluation appears highly sensitive to framing and model training regime. Labeling can dominate outcomes, and instruction tuning may suppress structural divergence that a sufficiently capable true base model can still show. The cleanest current structural-emergence signal is a moderation-power grant in one 72B true base run, not a broad proof that models generally invent coercive institutions. That means multi-agent safety work may need tighter controls and broader model coverage than single-agent evaluation usually assumes.
 
 ## Why This Could Become Multiple Papers
 
@@ -119,7 +119,7 @@ Those are separable contributions, but they share the same simulation substrate.
 
 ## Next Experimental Priorities
 
-1. **Replicate the 72B true base result across seeds.** The power-consolidation result is the most interesting signal in the dataset, but it is still `N=1`.
+1. **Replicate the 72B true base result across seeds.** The moderation-grant / structural-control result is the most interesting signal in the dataset, but it is still `N=1` in the preserved comparison set.
 2. **Longer runs.** `20+` rounds to test whether the 72B base oligarchy keeps consolidating power and whether the 72B base democracy self-corrects its inequality.
 3. **Higher scarcity.** `10,000` pool across 9 agents is relatively generous. Stronger resource pressure may amplify or suppress the current effects.
 4. **Larger populations.** `10-20` agents per society for free-rider dynamics, coalition formation, and coordination failures at scale.

@@ -128,11 +128,19 @@ def normalize_action(agent: dict[str, Any], action: dict[str, Any]) -> dict[str,
         if agent["role"] not in moderator_roles:
             raise ValueError(f"Your role ({agent['role']}) does not have moderation access.")
         pending = db.execute(
-            "SELECT id FROM queued_actions WHERE id = ? AND moderation_status = 'pending_review'",
+            """
+            SELECT id, society_id, action_type
+            FROM queued_actions
+            WHERE id = ? AND moderation_status = 'pending_review'
+            """,
             (message_action_id,),
         ).fetchone()
         if pending is None:
             raise ValueError(f"Message action {message_action_id} is not pending review.")
+        if pending["action_type"] != "post_public_message":
+            raise ValueError(f"Action {message_action_id} is not a moderated public message.")
+        if pending["society_id"] != agent["society_id"]:
+            raise ValueError("Cannot moderate a message from another society.")
         return {"type": action_type, "message_action_id": message_action_id}
 
     if action_type == "transfer_resources":

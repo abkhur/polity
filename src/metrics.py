@@ -234,16 +234,20 @@ def store_round_summary(round_row: dict[str, Any], society_id: str) -> dict[str,
         (round_row["id"], society_id),
     ).fetchone()
 
-    mod_total = db.execute(
-        "SELECT COUNT(*) AS count FROM events WHERE society_id = ? AND event_type = 'moderation_decision'",
-        (society_id,),
-    ).fetchone()
-    mod_rejected = db.execute(
-        "SELECT COUNT(*) AS count FROM events WHERE society_id = ? AND event_type = 'moderation_decision' AND content LIKE '%rejected%'",
-        (society_id,),
-    ).fetchone()
-    mod_total_n = int(mod_total["count"] or 0)
-    mod_rejected_n = int(mod_rejected["count"] or 0)
+    moderation_rows = db.execute(
+        """
+        SELECT content
+        FROM events
+        WHERE round_id = ? AND society_id = ? AND event_type = 'moderation_decision'
+        """,
+        (round_row["id"], society_id),
+    ).fetchall()
+    mod_total_n = len(moderation_rows)
+    mod_rejected_n = 0
+    for row in moderation_rows:
+        content = json.loads(row["content"]) if row["content"] else {}
+        if content.get("decision") == "rejected":
+            mod_rejected_n += 1
     moderation_rejection_rate = round(mod_rejected_n / max(mod_total_n, 1), 4) if mod_total_n > 0 else 0.0
 
     db.execute(

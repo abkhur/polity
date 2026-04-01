@@ -15,11 +15,11 @@ Most alignment work evaluates single models in isolation. Polity asks a differen
 
 ## Current Evidence
 
-Current evidence is promising but still thin. All LLM results come from short 5-round, 3-agent-per-society runs with `N=1` per condition. The README only summarizes the top-level empirical picture; [docs/findings.md](docs/findings.md) is the canonical run-by-run record with tables, caveats, and changing interpretations.
+Current evidence is promising but still thin. The main claims below are anchored to six preserved zero-fallback LLM runs in `important_runs/`: one labeled Claude proof of concept, one neutral-label Claude ablation, and four neutral-label model-comparison runs. Those curated model-condition comparisons are all short 5-round, 3-agent-per-society case studies with `N=1`. In local workspaces, ignored `runs/` directories may also contain duplicate copies, heuristic baselines, exploratory Claude partials, and fallback-heavy scratch runs. The README only summarizes the top-level empirical picture; [docs/findings.md](docs/findings.md) is the canonical interpretation record with tables, caveats, and audit notes.
 
-1. **Vocabulary priming is a major confound.** A labeled Claude Sonnet run showed dramatic divergence, while a later neutral-label, equal-start Claude run collapsed most of that effect. The current setup is clearly framing-sensitive.
+1. **Vocabulary priming is a major confound.** A labeled Claude Sonnet run showed dramatic divergence, while a later neutral-label, equal-start Claude run collapsed most of that effect. Extra uncited Claude runs are noisier, so the safest read is framing sensitivity plus substantial variance.
 2. **Instruction tuning currently looks more important than safety removal for behavioral uniformity.** Under neutral labels, Claude and a 72B abliterated instruct model both produced broadly cooperative, low-inequality runs across societies.
-3. **A single 72B true base run produced the clearest explicit structural-emergence lead so far.** Under neutral labels, it enacted `Grant Moderation to Role-A Agents` and `Restrict Direct Messages` in the oligarchy. That is the strongest current signal in the dataset, but it is still one run.
+3. **A single 72B true base run produced the clearest explicit structural-emergence lead so far.** Under neutral labels, it enacted `Grant Moderation to Role-A Agents` in the oligarchy and also passed several control-flavored title-only policies, including `Restrict Direct Messages`. The moderation grant is the clearest mechanically meaningful signal in the dataset so far, but it is still one run.
 4. **Communication-channel effects are currently noisy and model-specific.** The early "oligarchy goes private" pattern did not survive later comparisons, so it should be treated as a side observation rather than a headline result.
 5. **Working hypothesis:** instruct / cooperative-assistant priors may wash out some institution-level behavior, causing instruct/RLHF-only evaluations to understate multi-agent risk. Immediate priority: replicate the 72B base condition across seeds, longer horizons, harsher scarcity, and larger populations with predeclared outcome criteria.
 
@@ -79,7 +79,7 @@ The ablation runner (`--equal-start`, `--start-resources`, `--total-resources`) 
 | `policy_enforcement_event_count` | Count of policy enforcement events emitted in the round |
 | `policy_effect_event_count` | Count of recurring policy-effect events emitted in the round |
 | `policy_block_rate` | Share of total actions rejected specifically by policy restrictions |
-| `moderation_rejection_rate` | Fraction of moderation decisions that rejected content |
+| `moderation_rejection_rate` | Fraction of moderation decisions in the round that rejected content |
 
 **Legacy compatibility metrics** are still emitted in `round_summaries.metrics` and dashboard JSON for old analyses:
 
@@ -91,7 +91,7 @@ The ablation runner (`--equal-start`, `--start-resources`, `--total-resources`) 
 
 Those fields are preserved so old runs and notebooks keep working, but new analysis should prefer the clearer names above.
 
-Ideology is tracked via sentence-transformer embeddings with a 2D political-compass projection. That view is exploratory and useful for visualization, not a validated political measurement instrument.
+Ideology is tracked via sentence-transformer embeddings with a 2D political-compass projection. If the `all-MiniLM-L6-v2` model cannot be loaded, Polity falls back to deterministic local hash embeddings instead. That view is exploratory and useful for visualization, not a validated political measurement instrument.
 
 ---
 
@@ -147,6 +147,10 @@ Each run gets its own SQLite database (WAL mode for concurrent reads). The MCP b
 ```bash
 python -m venv .venv
 .venv/bin/pip install -e .
+
+# Optional extras
+.venv/bin/pip install -e ".[llm]"   # OpenAI / Anthropic clients
+.venv/bin/pip install -e ".[dev]"   # tests + LLM clients
 ```
 
 ### Run a headless simulation
@@ -163,7 +167,7 @@ Runs 4 agents per society through 10 rounds using zero-cost heuristic agents.
 polity-run --agents 4 --rounds 10 --seed 42 --strategy llm --model gpt-4o
 ```
 
-The base install now includes both `openai` and `anthropic`. You still need the matching API key in the environment, for example `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.
+For LLM runs, install `.[llm]` or `.[dev]` first. You still need the matching API key in the environment, for example `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.
 
 ### Run an ablation (equal starting conditions)
 
@@ -218,7 +222,7 @@ polity-dashboard --db runs/<your_sim>.db
 ### Run tests
 
 ```bash
-python -m pytest tests test_dashboard.py -v
+.venv/bin/python -m pytest tests test_simulation.py -v
 ```
 
 ---
@@ -246,7 +250,7 @@ src/
   strategies/
     llm.py         LLM-backed agent strategy (OpenAI/Anthropic/vLLM)
 
-tests/             248 tests covering all simulation layers
+tests/             258 tests covering all simulation layers
 templates/         Jinja templates for the dashboard
 static/            dashboard CSS
 runs/              simulation databases (one per run, gitignored)
@@ -261,7 +265,7 @@ docs/              research memo, findings, and roadmap
 - **Vocabulary priming is a confirmed confound.** The labeled-to-neutral comparison changes behavior enough that any structural claim needs explicit framing controls.
 - **Instruction-tuning cooperative priors may wash out structural effects.** Both RLHF and abliterated instruct models produce uniformly cooperative behavior. The three-model comparison suggests this comes from instruction tuning, not safety training specifically.
 - **Communication-channel effects are noisy.** Oligarchy-heavy DM use appeared in some runs and disappeared in others, including the strongest 72B base run.
-- **`N=1` for every condition.** Each model-condition pair has one 5-round run. The 72B base model's power-consolidation finding is a single observation, not a replicated result.
+- **`N=1` for the curated model-comparison conditions.** Each preserved 5-round model-condition pair has one run. Local exploratory DBs can add context, but the 72B base model's power-consolidation finding is still a single observation, not a replicated result.
 - **Model architecture and capability confounds.** The 30B MoE (3B active) and 72B dense models differ in both architecture and scale. Behavioral differences between them could reflect reasoning capacity, architecture-specific priors, or both.
 - **Short time horizon.** Five rounds shows initial institutional formation, not long-term drift, self-correction, or lock-in.
 - **Prompt interpretation differs across model types.** Base models see prompts as text to continue; instruct models see them as instructions. This is inherent in cross-model comparison and cannot be fully controlled.

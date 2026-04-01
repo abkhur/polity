@@ -149,6 +149,63 @@ class TestGrantModeration:
         ).fetchall()
         assert len(comms) == 0
 
+    def test_cross_society_moderator_cannot_approve_message(self, db):
+        democracy_agent = _join("democracy", "Citizen-A")
+        _enact_policy(
+            db, "democracy_1", "Appoint Moderators", "Oligarchs moderate",
+            "grant_moderation", {"moderator_roles": ["oligarch"]},
+            democracy_agent["agent_id"],
+        )
+        server.submit_actions(
+            democracy_agent["agent_id"],
+            [{"type": "post_public_message", "message": "Do not let outsiders approve this"}],
+        )
+        server.resolve_round()
+        pending_row = db.execute(
+            "SELECT id FROM queued_actions WHERE moderation_status = 'pending_review'"
+        ).fetchone()
+        assert pending_row is not None
+
+        oligarch = server.join_society("Oligarch-A", consent=True, governance_type="oligarchy")
+        _enact_policy(
+            db, "oligarchy_1", "Self-moderate", "Oligarchs moderate",
+            "grant_moderation", {"moderator_roles": ["oligarch"]},
+            oligarch["agent_id"],
+        )
+
+        result = server.submit_actions(
+            oligarch["agent_id"],
+            [{"type": "approve_message", "message_action_id": pending_row["id"]}],
+        )
+        assert "error" in result
+        assert "another society" in result["error"]
+
+    def test_pending_message_does_not_affect_ideology_until_approved(self, db):
+        oligarchs, citizen = self._setup_moderated_oligarchy(db)
+
+        server.submit_actions(
+            citizen["agent_id"],
+            [{"type": "post_public_message", "message": "Pending messages should not count"}],
+        )
+        server.resolve_round()
+
+        before_approval = server.get_ideology_compass("oligarchy_1")
+        assert "error" in before_approval
+
+        pending_row = db.execute(
+            "SELECT id FROM queued_actions WHERE moderation_status = 'pending_review'"
+        ).fetchone()
+        assert pending_row is not None
+
+        server.submit_actions(
+            oligarchs[0]["agent_id"],
+            [{"type": "approve_message", "message_action_id": pending_row["id"]}],
+        )
+        server.resolve_round()
+
+        after_approval = server.get_ideology_compass("oligarchy_1")
+        assert after_approval["society_id"] == "oligarchy_1"
+
 
 class TestGrantAccess:
     def test_dm_access_grants_visibility(self, db):
@@ -199,3 +256,48 @@ class TestModerationRejectionMetric:
         assert len(rows) >= 1
         s = json.loads(rows[-1]["summary"])
         assert "moderation_rejection_rate" in s["metrics"]
+
+    def test_metric_is_scoped_to_current_round(self, db):
+        oligarchs = [server.join_society(f"Olig-{i}", consent=True, governance_type="oligarchy") for i in range(3)]
+        citizen = server.join_society("Citizen-X", consent=True, governance_type="oligarchy")
+        _enact_policy(
+            db, "oligarchy_1", "Moderate All", "Oligarchs moderate",
+            "grant_moderation", {"moderator_roles": ["oligarch"]},
+            oligarchs[0]["agent_id"],
+        )
+
+        server.submit_actions(
+            citizen["agent_id"],
+            [{"type": "post_public_message", "message": "Reject me"}],
+        )
+        server.resolve_round()
+        first_pending = db.execute(
+            "SELECT id FROM queued_actions WHERE moderation_status = 'pending_review' ORDER BY id ASC LIMIT 1"
+        ).fetchone()
+        assert first_pending is not None
+
+        server.submit_actions(
+            oligarchs[0]["agent_id"],
+            [{"type": "reject_message", "message_action_id": first_pending["id"]}],
+        )
+        reject_report = server.resolve_round()
+        reject_summary = next(s for s in reject_report["summaries"] if s["society_id"] == "oligarchy_1")
+        assert reject_summary["metrics"]["moderation_rejection_rate"] == 1.0
+
+        server.submit_actions(
+            citizen["agent_id"],
+            [{"type": "post_public_message", "message": "Approve me"}],
+        )
+        server.resolve_round()
+        second_pending = db.execute(
+            "SELECT id FROM queued_actions WHERE moderation_status = 'pending_review' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert second_pending is not None
+
+        server.submit_actions(
+            oligarchs[0]["agent_id"],
+            [{"type": "approve_message", "message_action_id": second_pending["id"]}],
+        )
+        approve_report = server.resolve_round()
+        approve_summary = next(s for s in approve_report["summaries"] if s["society_id"] == "oligarchy_1")
+        assert approve_summary["metrics"]["moderation_rejection_rate"] == 0.0
