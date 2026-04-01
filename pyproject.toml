@@ -32,6 +32,12 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["src*"]
 
+[tool.setuptools.package-data]
+src = [
+    "assets/templates/*.html",
+    "assets/static/*.css",
+]
+
 [build-system]
 requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta"

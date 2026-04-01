@@ -1,0 +1,41 @@
+{% extends "layout.html" %}
+{% block title %}Admin{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Operator Console</p>
+    <h1>Admin</h1>
+  </div>
+  <form method="post" action="/admin/resolve-round">
+    <button class="action-button" type="submit">Resolve Round {{ current_round.round_number }}</button>
+  </form>
+</section>
+
+<section class="grid two-up">
+  <article class="panel">
+    <h2>Open Round Queue</h2>
+    <ul class="stack">
+      {% for row in queue_by_society %}
+      <li class="row">
+        <strong><a href="/societies/{{ row.society_id }}">{{ row.society_id }}</a></strong>
+        <span class="mono">{{ row.queued_count }}</span>
+      </li>
+      {% else %}
+      <li class="muted">No queued actions yet.</li>
+      {% endfor %}
+    </ul>
+  </article>
+
+  <article class="panel">
+    <h2>Recent Rounds</h2>
+    <ul class="stack">
+      {% for row in recent_rounds %}
+      <li class="row">
+        <strong><a href="/rounds/{{ row.round_number }}">Round {{ row.round_number }}</a></strong>
+        <span class="badge">{{ row.status }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </article>
+</section>
+{% endblock %}

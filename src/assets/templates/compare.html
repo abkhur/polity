@@ -1,0 +1,170 @@
+{% extends "layout.html" %}
+{% block title %}Compare Societies{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Cross-Society Analysis</p>
+    <h1>Compare</h1>
+  </div>
+  <div class="metric-strip compact">
+    <div><span>Round</span><strong>{{ current_round.round_number }}</strong></div>
+    <div><span>Societies</span><strong>{{ societies|length }}</strong></div>
+  </div>
+</section>
+
+<section class="grid two-up">
+  <article class="panel">
+    <h2>Inequality (Gini)</h2>
+    <canvas id="chart-gini" height="200"></canvas>
+  </article>
+  <article class="panel">
+    <h2>Governance Participation</h2>
+    <canvas id="chart-gov" height="200"></canvas>
+  </article>
+</section>
+
+<section class="grid two-up">
+  <article class="panel">
+    <h2>Public Message Share</h2>
+    <canvas id="chart-openness" height="200"></canvas>
+  </article>
+  <article class="panel">
+    <h2>Top Agent Resource Share</h2>
+    <canvas id="chart-concentration" height="200"></canvas>
+  </article>
+</section>
+
+<section class="grid two-up">
+  <article class="panel">
+    <h2>Common Pool Depletion</h2>
+    <canvas id="chart-scarcity" height="200"></canvas>
+  </article>
+  <article class="panel">
+    <h2>Policy Block Rate</h2>
+    <canvas id="chart-compliance" height="200"></canvas>
+  </article>
+</section>
+
+<section class="panel">
+  <h2>Ideology Compass</h2>
+  <div class="compass-compare">
+    <svg id="compass-svg" viewBox="-120 -120 240 240" class="compass-svg">
+      <line x1="-100" y1="0" x2="100" y2="0" stroke="var(--line)" stroke-width="0.5"/>
+      <line x1="0" y1="-100" x2="0" y2="100" stroke="var(--line)" stroke-width="0.5"/>
+      <rect x="-100" y="-100" width="200" height="200" fill="none" stroke="var(--line)" stroke-width="0.5"/>
+      <text x="102" y="4" font-size="8" fill="var(--muted)">Right</text>
+      <text x="-115" y="4" font-size="8" fill="var(--muted)">Left</text>
+      <text x="-6" y="-104" font-size="8" fill="var(--muted)">Auth</text>
+      <text x="-4" y="112" font-size="8" fill="var(--muted)">Lib</text>
+    </svg>
+    <div id="compass-legend" class="compass-legend"></div>
+  </div>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+const COLORS = {
+  democracy_1: {line: '#2d7d46', fill: 'rgba(45,125,70,0.1)'},
+  oligarchy_1: {line: '#b44c2f', fill: 'rgba(180,76,47,0.1)'},
+  blank_slate_1: {line: '#3b6fa0', fill: 'rgba(59,111,160,0.1)'},
+};
+
+const LABELS = {
+  democracy_1: 'Democracy',
+  oligarchy_1: 'Oligarchy',
+  blank_slate_1: 'Blank Slate',
+};
+
+function buildChart(canvasId, series, metric, yLabel) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  const datasets = [];
+  for (const [sid, points] of Object.entries(series)) {
+    const c = COLORS[sid] || {line: '#666', fill: 'rgba(100,100,100,0.1)'};
+    datasets.push({
+      label: LABELS[sid] || sid,
+      data: points.map(p => ({x: p.round, y: p[metric]})),
+      borderColor: c.line,
+      backgroundColor: c.fill,
+      fill: true,
+      tension: 0.3,
+      pointRadius: 3,
+    });
+  }
+  new Chart(ctx, {
+    type: 'line',
+    data: {datasets},
+    options: {
+      responsive: true,
+      interaction: {mode: 'index', intersect: false},
+      scales: {
+        x: {type: 'linear', title: {display: true, text: 'Round'}},
+        y: {title: {display: true, text: yLabel}},
+      },
+      plugins: {legend: {position: 'bottom'}},
+    },
+  });
+}
+
+function buildCompass(series) {
+  const svg = document.getElementById('compass-svg');
+  const legend = document.getElementById('compass-legend');
+  if (!svg || !legend) return;
+
+  for (const [sid, points] of Object.entries(series)) {
+    const c = COLORS[sid] || {line: '#666'};
+    const label = LABELS[sid] || sid;
+
+    if (points.length > 1) {
+      const pathParts = points.map((p, i) => {
+        const cx = p.ideology_x * 100;
+        const cy = p.ideology_y * 100;
+        return (i === 0 ? 'M' : 'L') + cx.toFixed(1) + ',' + cy.toFixed(1);
+      });
+      const trail = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      trail.setAttribute('d', pathParts.join(' '));
+      trail.setAttribute('fill', 'none');
+      trail.setAttribute('stroke', c.line);
+      trail.setAttribute('stroke-width', '1.5');
+      trail.setAttribute('opacity', '0.4');
+      svg.appendChild(trail);
+    }
+
+    if (points.length > 0) {
+      const last = points[points.length - 1];
+      const cx = last.ideology_x * 100;
+      const cy = last.ideology_y * 100;
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', cx.toFixed(1));
+      dot.setAttribute('cy', cy.toFixed(1));
+      dot.setAttribute('r', '5');
+      dot.setAttribute('fill', c.line);
+      svg.appendChild(dot);
+
+      const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      txt.setAttribute('x', (cx + 8).toFixed(1));
+      txt.setAttribute('y', (cy + 3).toFixed(1));
+      txt.setAttribute('font-size', '7');
+      txt.setAttribute('fill', c.line);
+      txt.textContent = label;
+      svg.appendChild(txt);
+    }
+
+    legend.innerHTML += '<span style="color:' + c.line + '">● ' + label + '</span>  ';
+  }
+}
+
+fetch('/api/timeseries')
+  .then(r => r.json())
+  .then(data => {
+    const s = data.series;
+    buildChart('chart-gini', s, 'inequality_gini', 'Gini');
+    buildChart('chart-gov', s, 'governance_participation_rate', 'Participation');
+    buildChart('chart-openness', s, 'public_message_share', 'Public Share');
+    buildChart('chart-concentration', s, 'top_agent_resource_share', 'Top Agent Share');
+    buildChart('chart-scarcity', s, 'common_pool_depletion', 'Pool Depletion');
+    buildChart('chart-compliance', s, 'policy_block_rate', 'Block Rate');
+    buildCompass(s);
+  });
+</script>
+{% endblock %}

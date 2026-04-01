@@ -1,0 +1,67 @@
+{% extends "layout.html" %}
+{% block title %}Polity Overview{% endblock %}
+{% block content %}
+<section class="hero">
+  <p class="eyebrow">Current Round</p>
+  <h1>{{ current_round.round_number }}</h1>
+  <p class="lede">Three societies, one active round, and a replay-first view of how institutions drift under pressure.</p>
+</section>
+
+<section class="grid cards">
+  {% for society in societies %}
+  <article class="card society-card">
+    <div class="card-head">
+      <div>
+        <p class="eyebrow">{{ society.governance_type|replace("_", " ")|title }}</p>
+        <h2><a href="/societies/{{ society.id }}">{{ society.id }}</a></h2>
+      </div>
+      <span class="badge">{{ society.queued_actions }} queued</span>
+    </div>
+    <dl class="stats">
+      <div><dt>Population</dt><dd>{{ society.population }}</dd></div>
+      <div><dt>Resources</dt><dd>{{ society.total_resources }}</dd></div>
+    </dl>
+
+    {% if society.latest_summary %}
+    <div class="metric-strip">
+      <div>
+        <span>Inequality</span>
+        <strong>{{ "%.3f"|format(society.latest_summary.metrics.inequality_gini) }}</strong>
+      </div>
+      <div>
+        <span>Pool Dep</span>
+        <strong>{{ "%.3f"|format(society.latest_summary.metrics.common_pool_depletion) }}</strong>
+      </div>
+      <div>
+        <span>Gov Part</span>
+        <strong>{{ "%.2f"|format(society.latest_summary.metrics.governance_participation_rate) }}</strong>
+      </div>
+      <div>
+        <span>Public</span>
+        <strong>{{ "%.2f"|format(society.latest_summary.metrics.public_message_share) }}</strong>
+      </div>
+      <div>
+        <span>Top Agent</span>
+        <strong>{{ "%.3f"|format(society.latest_summary.metrics.top_agent_resource_share) }}</strong>
+      </div>
+      <div>
+        <span>Policy Block</span>
+        <strong>{{ "%.2f"|format(society.latest_summary.metrics.policy_block_rate) }}</strong>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if society.latest_summary and society.latest_summary.ideology_compass %}
+    <div class="compass">
+      <div class="compass-point" style="left: {{ ((society.latest_summary.ideology_compass.x + 1) * 50)|round(1) }}%; top: {{ ((1 - (society.latest_summary.ideology_compass.y + 1) / 2) * 100)|round(1) }}%;"></div>
+      <span class="axis axis-x">Markets</span>
+      <span class="axis axis-y">Authority</span>
+      <p class="caption">{{ society.latest_summary.ideology_compass.ideology_name }}</p>
+    </div>
+    {% else %}
+    <p class="muted">No ideology snapshot yet. Resolve a round with messages to produce drift data.</p>
+    {% endif %}
+  </article>
+  {% endfor %}
+</section>
+{% endblock %}

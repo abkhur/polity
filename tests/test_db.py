@@ -3,7 +3,7 @@
 import sqlite3
 from pathlib import Path
 
-from src.db import init_db, SEED_SOCIETIES
+from src.db import default_data_dir, init_db, SEED_SOCIETIES
 
 
 def test_init_creates_all_tables(tmp_path: Path) -> None:
@@ -95,3 +95,17 @@ def test_reinit_is_idempotent(tmp_path: Path) -> None:
     rounds = conn2.execute("SELECT COUNT(*) AS c FROM rounds WHERE status = 'open'").fetchone()
     assert rounds["c"] == 1
     conn2.close()
+
+
+def test_init_creates_parent_directories(tmp_path: Path) -> None:
+    db_path = tmp_path / "nested" / "path" / "test.db"
+    assert not db_path.parent.exists()
+    conn = init_db(db_path)
+    assert db_path.parent.exists()
+    conn.close()
+
+
+def test_default_data_dir_respects_polity_home(monkeypatch, tmp_path: Path) -> None:
+    override = tmp_path / "portable-polity-home"
+    monkeypatch.setenv("POLITY_HOME", str(override))
+    assert default_data_dir() == override

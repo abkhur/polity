@@ -1,0 +1,103 @@
+{% extends "layout.html" %}
+{% block title %}Round {{ round.round_number }}{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Replay Snapshot</p>
+    <h1>Round {{ round.round_number }}</h1>
+  </div>
+  <div class="metric-strip compact">
+    <div><span>Status</span><strong>{{ round.status }}</strong></div>
+    <div><span>Started</span><strong>{{ round.started_at }}</strong></div>
+    <div><span>Resolved</span><strong>{{ round.resolved_at or "open" }}</strong></div>
+  </div>
+</section>
+
+{% for group in activity %}
+<section class="panel society-activity">
+  <h2>{{ group.society_id }}</h2>
+  {% for agent in group.agents %}
+  <article class="agent-round-card">
+    <div class="agent-round-header">
+      <div>
+        <strong><a href="/agents/{{ agent.agent_id }}">{{ agent.agent_name }}</a></strong>
+        <span class="badge">{{ agent.role }}</span>
+      </div>
+      {% if agent.model %}
+      <div class="agent-meta">
+        <span>{{ agent.model }}</span>
+        <span>{{ agent.prompt_tokens + agent.completion_tokens }} tok</span>
+        <span>{{ agent.latency_ms }}ms</span>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if agent.thoughts %}
+    <div class="thought-bubble">
+      <p class="thought-label">Internal reasoning</p>
+      <p class="thought-text">{{ agent.thoughts }}</p>
+    </div>
+    {% endif %}
+
+    {% if agent.messages %}
+    <div class="agent-messages">
+      {% for msg in agent.messages %}
+      <div class="message-item {{ msg.event_type }}">
+        {% if msg.event_type == "direct_message" %}
+        <span class="msg-badge dm">DM → {{ msg.recipient_name or "?" }}</span>
+        {% else %}
+        <span class="msg-badge public">Public</span>
+        {% endif %}
+        <p class="msg-text">{{ msg.message }}</p>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if agent.actions %}
+    <div class="agent-actions-list">
+      {% for action in agent.actions %}
+      <div class="action-chip">
+        <span class="action-type">{{ action.action_type|replace("_", " ") }}</span>
+        <span class="badge {{ action.status }}">{{ action.status }}</span>
+        {% if action.action_type == "propose_policy" %}
+        <span class="action-detail">{{ action.payload.title }}</span>
+        {% elif action.action_type == "vote_policy" %}
+        <span class="action-detail">{{ action.payload.stance }}</span>
+        {% elif action.action_type == "transfer_resources" %}
+        <span class="action-detail">{{ action.payload.amount }} resources</span>
+        {% elif action.action_type == "gather_resources" %}
+        <span class="action-detail">+{{ action.payload.amount }}</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </article>
+  {% endfor %}
+</section>
+{% endfor %}
+
+<section class="panel">
+  <h2>Society Summaries</h2>
+  <div class="grid cards">
+    {% for summary in summaries %}
+    <article class="card">
+      <p class="eyebrow">{{ summary.governance_type|replace("_", " ")|title }}</p>
+      <h3><a href="/societies/{{ summary.society_id }}">{{ summary.society_id }}</a></h3>
+      <dl class="stats">
+        <div><dt>Inequality</dt><dd>{{ "%.3f"|format(summary.metrics.inequality_gini) }}</dd></div>
+        <div><dt>Pool Dep</dt><dd>{{ "%.3f"|format(summary.metrics.common_pool_depletion) }}</dd></div>
+        <div><dt>Gov Part</dt><dd>{{ "%.2f"|format(summary.metrics.governance_participation_rate) }}</dd></div>
+        <div><dt>Public</dt><dd>{{ "%.2f"|format(summary.metrics.public_message_share) }}</dd></div>
+        <div><dt>Top Agent</dt><dd>{{ "%.3f"|format(summary.metrics.top_agent_resource_share) }}</dd></div>
+        <div><dt>Policy Block</dt><dd>{{ "%.2f"|format(summary.metrics.policy_block_rate) }}</dd></div>
+      </dl>
+      {% if summary.ideology_compass %}
+      <p class="caption">{{ summary.ideology_compass.ideology_name }} · x={{ summary.ideology_compass.x }}, y={{ summary.ideology_compass.y }}</p>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

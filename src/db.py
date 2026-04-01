@@ -1,12 +1,57 @@
 """SQLite database setup and access for Polity."""
 
+from __future__ import annotations
+
 import logging
+import os
 import sqlite3
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DB_PATH = Path(__file__).parent.parent / "polity.db"
+APP_DIR_NAME = "Polity"
+
+
+def default_data_dir() -> Path:
+    """Return a user-writable default data directory for the current platform."""
+    override = os.environ.get("POLITY_HOME")
+    if override:
+        return Path(override).expanduser()
+
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if base:
+            return Path(base) / APP_DIR_NAME
+
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / APP_DIR_NAME
+
+    xdg_state_home = os.environ.get("XDG_STATE_HOME")
+    if xdg_state_home:
+        return Path(xdg_state_home).expanduser() / APP_DIR_NAME.lower()
+
+    return Path.home() / ".local" / "state" / APP_DIR_NAME.lower()
+
+
+def default_db_path() -> Path:
+    return default_data_dir() / "polity.db"
+
+
+def default_runs_dir() -> Path:
+    return default_data_dir() / "runs"
+
+
+def default_batch_dir() -> Path:
+    return default_runs_dir() / "batch"
+
+
+DEFAULT_DB_PATH = default_db_path()
+
+
+def resolve_db_path(db_path: Path | str | None = None) -> Path:
+    path = default_db_path() if db_path is None else Path(db_path).expanduser()
+    return path
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS societies (
@@ -163,8 +208,10 @@ EXPECTED_COLUMNS = {
 }
 
 
-def get_connection(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+def get_connection(db_path: Path | str | None = None) -> sqlite3.Connection:
+    resolved = resolve_db_path(db_path)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(resolved), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -217,12 +264,13 @@ def _ensure_open_round(conn: sqlite3.Connection) -> None:
         )
 
 
-def init_db(db_path: Path = DEFAULT_DB_PATH) -> sqlite3.Connection:
-    conn = get_connection(db_path)
+def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
+    resolved = resolve_db_path(db_path)
+    conn = get_connection(resolved)
     conn.executescript(SCHEMA)
     _ensure_columns(conn)
     _seed_societies(conn)
     _ensure_open_round(conn)
     conn.commit()
-    logger.info("Database initialized at %s", db_path)
+    logger.info("Database initialized at %s", resolved)
     return conn

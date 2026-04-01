@@ -279,3 +279,16 @@ class TestSimulationRun:
 
         for summary in report["final_summaries"]:
             assert summary["initial_total_resources"] == 25000
+
+    def test_default_db_path_uses_polity_home(self, monkeypatch, tmp_path) -> None:
+        monkeypatch.setenv("POLITY_HOME", str(tmp_path / "polity-home"))
+
+        report = run_simulation(
+            SimulationConfig(
+                agents_per_society=1,
+                num_rounds=1,
+                seed=5,
+            )
+        )
+
+        assert report["db_path"].startswith(str(tmp_path / "polity-home"))

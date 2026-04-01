@@ -1,10 +1,18 @@
 """Ideology tracking via sentence-transformer embeddings."""
 
+from __future__ import annotations
+
 import logging
 import sqlite3
 from hashlib import sha256
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer as SentenceTransformerType
+else:
+    SentenceTransformerType = Any
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -24,12 +32,12 @@ REFERENCE_TEXTS = {
     "libertarian": "individual freedom, minimal government, personal autonomy, liberty",
 }
 
-_model: SentenceTransformer | None = None
+_model: SentenceTransformerType | None = None
 _reference_embeddings: dict[str, np.ndarray] | None = None
 _use_fallback_embeddings = False
 
 
-def _get_model() -> SentenceTransformer:
+def _get_model() -> SentenceTransformerType:
     global _model, _use_fallback_embeddings
     if _model is None:
         if SentenceTransformer is None:
@@ -42,7 +50,7 @@ def _get_model() -> SentenceTransformer:
             _use_fallback_embeddings = True
             logger.warning("Falling back to local hash embeddings: %s", exc)
             raise RuntimeError("Falling back to local hash embeddings") from exc
-    return _model
+    return cast(SentenceTransformerType, _model)
 
 
 def _fallback_embed_text(text: str) -> np.ndarray:

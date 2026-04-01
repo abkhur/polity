@@ -7,6 +7,8 @@ from starlette.requests import Request
 
 from src import server
 from src.dashboard import (
+    STATIC_DIR,
+    TEMPLATES_DIR,
     api_round,
     api_research_runs,
     api_society,
@@ -46,6 +48,11 @@ def _request(app, path: str, path_params: dict | None = None) -> Request:
 
 
 class TestDashboardPages:
+    def test_packaged_asset_directories_exist(self) -> None:
+        assert TEMPLATES_DIR.exists()
+        assert STATIC_DIR is not None
+        assert STATIC_DIR.exists()
+
     def test_dashboard_pages_and_api(self, tmp_path):
         app = create_dashboard_app(str(tmp_path / "dashboard.db"))
 

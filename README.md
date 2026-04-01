@@ -146,11 +146,13 @@ Each run gets its own SQLite database (WAL mode for concurrent reads). The MCP b
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install -e .
+# POSIX: . .venv/bin/activate
+# PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install -e .
 
 # Optional extras
-.venv/bin/pip install -e ".[llm]"   # OpenAI / Anthropic clients
-.venv/bin/pip install -e ".[dev]"   # tests + LLM clients
+python -m pip install -e ".[llm]"   # OpenAI / Anthropic clients
+python -m pip install -e ".[dev]"   # tests + LLM clients
 ```
 
 ### Run a headless simulation
@@ -160,6 +162,7 @@ polity-run --agents 4 --rounds 10 --seed 42
 ```
 
 Runs 4 agents per society through 10 rounds using zero-cost heuristic agents.
+If `--db` is omitted, Polity writes the run database to a user-writable app-data directory. Set `POLITY_HOME` to override that location.
 
 ### Run with LLM agents
 
@@ -222,7 +225,7 @@ polity-dashboard --db runs/<your_sim>.db
 ### Run tests
 
 ```bash
-.venv/bin/python -m pytest tests test_simulation.py -v
+python -m pytest tests test_simulation.py -v
 ```
 
 ---

@@ -11,15 +11,15 @@ import json
 import logging
 import statistics
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .db import default_batch_dir
 from .runner import SimulationConfig, run_simulation
+from .terminal_ui import glyphs as terminal_glyphs
 
 logger = logging.getLogger("polity.batch")
-
-_SEPARATOR = "═" * 64
 
 
 @dataclass
@@ -28,7 +28,7 @@ class BatchConfig:
     agents_per_society: int = 4
     num_rounds: int = 10
     base_seed: int = 1000
-    output_dir: str = "runs/batch"
+    output_dir: str = field(default_factory=lambda: str(default_batch_dir()))
     equal_start: bool = False
     override_starting_resources: int | None = None
     override_total_resources: int | None = None
@@ -129,7 +129,7 @@ def run_batch(config: BatchConfig) -> dict[str, Any]:
     }
 
     report_path = output_path / "batch_report.json"
-    with open(report_path, "w") as f:
+    with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)
 
     _print_report(report)
@@ -139,9 +139,11 @@ def run_batch(config: BatchConfig) -> dict[str, Any]:
 
 
 def _print_report(report: dict[str, Any]) -> None:
-    print(f"\n{_SEPARATOR}")
+    ui = terminal_glyphs()
+    separator = ui["separator"]
+    print(f"\n{separator}")
     print("  POLITY BATCH RESULTS")
-    print(_SEPARATOR)
+    print(separator)
     cfg = report["config"]
     header = (
         f"  Runs: {cfg['num_runs']}  |  Rounds: {cfg['num_rounds']}  |  "
@@ -151,15 +153,15 @@ def _print_report(report: dict[str, Any]) -> None:
     if cfg["strategy"] == "llm":
         header += f"  |  Model: {cfg['model']}"
     print(header)
-    print(_SEPARATOR)
+    print(separator)
 
     for sid, metrics in report["aggregated"].items():
         print(f"\n  {sid}")
         for key, stats in metrics.items():
-            print(f"    {key:<28s} {stats['mean']:>8.4f} ± {stats['std']:.4f}  "
+            print(f"    {key:<28s} {stats['mean']:>8.4f} {ui['plus_minus']} {stats['std']:.4f}  "
                   f"[{stats['min']:.4f}, {stats['max']:.4f}]  n={stats['n']}")
 
-    print(f"\n{_SEPARATOR}")
+    print(f"\n{separator}")
 
 
 def main() -> None:
@@ -188,8 +190,8 @@ def main() -> None:
         help="Starting seed (incremented for each run, default: 1000)",
     )
     parser.add_argument(
-        "--output", type=str, default="runs/batch",
-        help="Output directory for databases and report (default: runs/batch)",
+        "--output", type=str, default=str(default_batch_dir()),
+        help=f"Output directory for databases and report (default: {default_batch_dir()})",
     )
     parser.add_argument(
         "--equal-start", action="store_true",

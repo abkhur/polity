@@ -6,6 +6,7 @@ import json
 import sqlite3
 from pathlib import Path
 from typing import Any
+
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -15,13 +16,38 @@ from starlette.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 
 from . import server
-from .db import DEFAULT_DB_PATH, init_db
+from .db import init_db
 from .run_metadata import get_run_metadata
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-TEMPLATES_DIR = BASE_DIR / "templates"
-STATIC_DIR = BASE_DIR / "static"
-RESEARCH_DIR = BASE_DIR / "important_runs"
+PACKAGE_DIR = Path(__file__).resolve().parent
+CHECKOUT_ROOT = PACKAGE_DIR.parent
+
+
+def _first_existing_dir(*candidates: Path) -> Path | None:
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _required_dir(name: str, *candidates: Path) -> Path:
+    found = _first_existing_dir(*candidates)
+    if found is not None:
+        return found
+    searched = ", ".join(str(candidate) for candidate in candidates)
+    raise RuntimeError(f"Could not locate {name} directory. Searched: {searched}")
+
+
+TEMPLATES_DIR = _required_dir(
+    "templates",
+    PACKAGE_DIR / "assets" / "templates",
+    CHECKOUT_ROOT / "templates",
+)
+STATIC_DIR = _first_existing_dir(
+    PACKAGE_DIR / "assets" / "static",
+    CHECKOUT_ROOT / "static",
+)
+RESEARCH_DIR = _first_existing_dir(CHECKOUT_ROOT / "important_runs") or (CHECKOUT_ROOT / "important_runs")
 SOCIETY_ORDER = ("democracy_1", "oligarchy_1", "blank_slate_1")
 SOCIETY_LABELS = {
     "democracy_1": "Democracy",
@@ -415,7 +441,7 @@ def _research_runs(research_dir: Path) -> list[dict[str, Any]]:
 
 def _ensure_runtime(db_path: str | None = None) -> None:
     if server.db is None:
-        server.set_db(init_db(Path(db_path) if db_path else DEFAULT_DB_PATH))
+        server.set_db(init_db(db_path))
 
 
 def _current_round() -> dict[str, Any]:
@@ -1019,7 +1045,7 @@ def create_dashboard_app(
     db_path: str | None = None,
     research_dir: str | None = None,
 ) -> Starlette:
-    server.set_db(init_db(Path(db_path) if db_path else DEFAULT_DB_PATH))
+    server.set_db(init_db(db_path))
     app = Starlette(
         debug=True,
         routes=[

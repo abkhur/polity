@@ -710,11 +710,7 @@ def get_ideology_compass(society_id: str) -> dict:
 
 def create_app(db_path: str | None = None):
     """Initialize DB and return the MCP app."""
-    if db_path:
-        from pathlib import Path
-        set_db(init_db(Path(db_path)))
-    else:
-        set_db(init_db())
+    set_db(init_db(db_path))
     return mcp
 
 

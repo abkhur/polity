@@ -17,9 +17,10 @@ from pathlib import Path
 from typing import Any
 
 from . import server
-from .db import init_db
+from .db import default_runs_dir, init_db
 from .model_providers import provider_for_config
 from .run_metadata import get_git_sha, store_run_metadata
+from .terminal_ui import glyphs as terminal_glyphs
 
 logger = logging.getLogger("polity.runner")
 
@@ -417,12 +418,10 @@ def run_simulation(config: SimulationConfig | None = None) -> dict[str, Any]:
     if config.seed is not None:
         random.seed(config.seed)
 
-    db_path = config.db_path or str(
-        Path(__file__).parent.parent / f"runs/sim_{int(time.time())}.db"
-    )
+    db_path = config.db_path or str(default_runs_dir() / f"sim_{int(time.time())}.db")
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
-    server.set_db(init_db(Path(db_path)))
+    server.set_db(init_db(db_path))
 
     llm_provider = None
     if config.strategy == "llm":
@@ -564,17 +563,13 @@ def run_simulation(config: SimulationConfig | None = None) -> dict[str, Any]:
     }
 
 
-# ---------------------------------------------------------------------------
-# Pretty terminal output
-# ---------------------------------------------------------------------------
-
-_SEPARATOR = "═" * 64
-
-
 def _print_header(agents: list[AgentHandle], config: SimulationConfig) -> None:
-    print(f"\n{_SEPARATOR}")
-    print("  POLITY — Headless Simulation")
-    print(_SEPARATOR)
+    ui = terminal_glyphs()
+    separator = ui["separator"]
+    title_dash = ui["title_dash"]
+    print(f"\n{separator}")
+    print(f"  POLITY {title_dash} Headless Simulation")
+    print(separator)
     by_society: dict[str, list[AgentHandle]] = {}
     for a in agents:
         by_society.setdefault(a.society_id, []).append(a)
@@ -591,10 +586,11 @@ def _print_header(agents: list[AgentHandle], config: SimulationConfig) -> None:
     if config.strategy == "llm":
         strategy_text += f"  |  Model: {config.model}"
     print(f"\n  Rounds: {config.num_rounds}  |  Seed: {config.seed or 'random'}{ablation}{strategy_text}")
-    print(_SEPARATOR)
+    print(separator)
 
 
 def _print_round_summary(report: dict[str, Any]) -> None:
+    ui = terminal_glyphs()
     rn = report["round_number"]
     resolved = report.get("resolved", {})
     msgs = len(resolved.get("messages", []))
@@ -604,12 +600,16 @@ def _print_round_summary(report: dict[str, Any]) -> None:
     archives = len(resolved.get("archive_writes", []))
     policies_resolved = len(resolved.get("policies_resolved", []))
 
-    print(f"\n  Round {rn}  │  msgs {msgs}  res {allocs}  prop {proposals}  vote {votes}  arch {archives}  pol±{policies_resolved}")
+    print(
+        f"\n  Round {rn}  {ui['column']}  msgs {msgs}  res {allocs}  "
+        f"prop {proposals}  vote {votes}  arch {archives}  "
+        f"pol{ui['plus_minus']}{policies_resolved}"
+    )
 
     for s in report.get("summaries", []):
         m = s.get("metrics", {})
         compass = s.get("ideology_compass", {})
-        ideology = compass.get("ideology_name", "—")
+        ideology = compass.get("ideology_name", ui["missing"])
         print(
             f"    {s['society_id']:<18} gini={m.get('inequality_gini', 0):.3f}  "
             f"part={m.get('participation_rate', 0):.2f}  "
@@ -617,16 +617,17 @@ def _print_round_summary(report: dict[str, Any]) -> None:
             f"gov={m.get('governance_participation_rate', 0):.2f}  "
             f"public={m.get('public_message_share', 0):.2f}  "
             f"block={m.get('policy_block_rate', 0):.2f}  "
-            f"│ {ideology}"
+            f"{ui['column']} {ideology}"
         )
 
 
 def _print_final(
     summaries: list[dict[str, Any]], rounds: int, num_agents: int, db_path: str
 ) -> None:
-    print(f"\n{_SEPARATOR}")
+    separator = terminal_glyphs()["separator"]
+    print(f"\n{separator}")
     print("  FINAL STATE")
-    print(_SEPARATOR)
+    print(separator)
     for s in summaries:
         m = s.get("metrics", {})
         compass = s.get("ideology_compass", {})
@@ -650,7 +651,7 @@ def _print_final(
     print(f"  Total agents:     {num_agents}")
     print(f"  Database:         {db_path}")
     print(f"\n  View in dashboard:  polity-dashboard --db {db_path}")
-    print(_SEPARATOR)
+    print(separator)
 
 
 # ---------------------------------------------------------------------------
@@ -681,7 +682,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--db", type=str, default=None,
-        help="Database path (default: runs/sim_<timestamp>.db)",
+        help=f"Database path (default: {default_runs_dir() / 'sim_<timestamp>.db'})",
     )
     parser.add_argument(
         "--equal-start", action="store_true",

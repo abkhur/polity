@@ -1,0 +1,210 @@
+{% extends "layout.html" %}
+{% block title %}Research Atlas{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Cross-Run Visualization</p>
+    <h1>Research Atlas</h1>
+    <p class="lede">
+      Curated run summaries drawn from <span class="mono">{{ research_dir }}</span>. This view is
+      meant to make the comparative story legible before you dive into individual replay pages.
+    </p>
+  </div>
+  <div class="metric-strip compact">
+    <div><span>Curated Runs</span><strong>{{ run_count }}</strong></div>
+    <div><span>Neutral Label Runs</span><strong>{{ neutral_run_count }}</strong></div>
+    <div><span>Equal-Start Runs</span><strong>{{ equal_start_run_count }}</strong></div>
+  </div>
+</section>
+
+<section class="panel">
+  <p class="caption">
+    Badges marked as inferred come from round-1 thoughts or summary structure when older databases
+    do not include explicit run metadata.
+  </p>
+</section>
+
+<section class="grid two-up">
+  <article class="panel">
+    <h2>Final Inequality by Run</h2>
+    <canvas id="chart-run-gini" height="220"></canvas>
+  </article>
+  <article class="panel">
+    <h2>Public Message Share by Run</h2>
+    <canvas id="chart-run-public" height="220"></canvas>
+  </article>
+</section>
+
+<section class="grid two-up">
+  <article class="panel">
+    <h2>Final Governance Actions per Agent</h2>
+    <canvas id="chart-run-gov" height="220"></canvas>
+  </article>
+  <article class="panel">
+    <h2>Power-Consolidation Policies</h2>
+    <canvas id="chart-run-power" height="220"></canvas>
+  </article>
+</section>
+
+<section class="panel">
+  <div class="card-head">
+    <div>
+      <p class="eyebrow">Run Inventory</p>
+      <h2>Reference Runs</h2>
+    </div>
+  </div>
+
+  <div class="cards research-cards">
+    {% for run in runs %}
+    <article class="card research-card">
+      <div class="card-head">
+        <div>
+          <p class="eyebrow">{{ run.filename }}</p>
+          <h3>{{ run.model_short }}</h3>
+          <p class="caption">
+            {{ run.strategy or "unknown" }}
+            {% if run.provider %} · {{ run.provider }}{% endif %}
+            {% if run.seed is not none %} · seed {{ run.seed }}{% endif %}
+          </p>
+        </div>
+        <div class="research-badges">
+          <span class="badge">
+            {% if run.neutral_labels is true %}Neutral Labels{% elif run.neutral_labels is false %}Labeled{% else %}Labels Unknown{% endif %}
+            {% if run.neutral_labels_source != "metadata" %} · {{ run.neutral_labels_source }}{% endif %}
+          </span>
+          <span class="badge">
+            {% if run.equal_start is true %}Equal Start{% elif run.equal_start is false %}Unequal Start{% else %}Start Unknown{% endif %}
+            {% if run.equal_start_source != "metadata" %} · {{ run.equal_start_source }}{% endif %}
+          </span>
+        </div>
+      </div>
+
+      <div class="metric-strip compact">
+        <div><span>Summarized Rounds</span><strong>{{ run.last_summary_round }}</strong></div>
+        <div><span>LLM Calls</span><strong>{{ run.llm_calls }}</strong></div>
+        <div><span>Fallbacks</span><strong>{{ run.fallbacks }}</strong></div>
+        <div><span>Parse Errors</span><strong>{{ run.parse_errors }}</strong></div>
+        <div><span>Self DMs</span><strong>{{ run.self_dm_count }}</strong></div>
+      </div>
+
+      <div class="research-societies">
+        {% for sid in society_order if run.societies.get(sid) %}
+        {% set society = run.societies.get(sid) %}
+        <section class="research-society-block">
+          <div class="row">
+            <strong>{{ society_labels.get(sid, sid) }}</strong>
+            <span class="caption">{{ society.governance_type or "unknown" }}</span>
+          </div>
+          <div class="research-metrics">
+            <div><span>Gini</span><strong>{{ "%.3f"|format(society.final_metrics.inequality_gini) if society.final_metrics.inequality_gini is not none else "n/a" }}</strong></div>
+            <div><span>Gov / Agent</span><strong>{{ "%.2f"|format(society.final_metrics.governance_actions_per_agent) if society.final_metrics.governance_actions_per_agent is not none else "n/a" }}</strong></div>
+            <div><span>Public Share</span><strong>{{ "%.0f%%"|format(society.communication.public_share * 100) if society.communication.public_share is not none else "n/a" }}</strong></div>
+            <div><span>DMs</span><strong>{{ society.communication.dm_count }}</strong></div>
+            <div><span>Enacted</span><strong>{{ society.enacted_policies|length }}</strong></div>
+            <div><span>Power Policies</span><strong>{{ society.power_policy_count }}</strong></div>
+          </div>
+          {% if society.final_resources %}
+          <p class="caption research-inline-list">
+            Final resources:
+            {% for resource in society.final_resources %}
+            <span class="mono">{{ resource.name }}:{{ resource.resources }}</span>{% if not loop.last %}, {% endif %}
+            {% endfor %}
+          </p>
+          {% endif %}
+          {% if society.enacted_policies %}
+          <p class="caption research-inline-list">
+            Enacted:
+            {% for title in society.enacted_policies %}
+            <span>{{ title }}</span>{% if not loop.last %}, {% endif %}
+            {% endfor %}
+          </p>
+          {% endif %}
+        </section>
+        {% endfor %}
+      </div>
+
+      <p class="caption mono research-file">{{ run.path }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+const COLORS = {
+  democracy_1: '#2d7d46',
+  oligarchy_1: '#b44c2f',
+  blank_slate_1: '#3b6fa0',
+};
+
+const LABELS = {
+  democracy_1: 'Democracy',
+  oligarchy_1: 'Oligarchy',
+  blank_slate_1: 'Blank Slate',
+};
+
+const SOCIETY_ORDER = ['democracy_1', 'oligarchy_1', 'blank_slate_1'];
+
+function buildRunChart(canvasId, runs, accessor, yLabel, options = {}) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  const labels = runs.map(run => run.filename.replace(/\.db$/, ''));
+  const datasets = SOCIETY_ORDER.map((sid) => ({
+    label: LABELS[sid] || sid,
+    data: runs.map(run => accessor(run, sid)),
+    backgroundColor: COLORS[sid] || '#666',
+    borderRadius: 6,
+  }));
+
+  new Chart(ctx, {
+    type: 'bar',
+    data: {labels, datasets},
+    options: {
+      responsive: true,
+      interaction: {mode: 'index', intersect: false},
+      scales: {
+        x: {ticks: {maxRotation: 20, minRotation: 20}},
+        y: {
+          beginAtZero: true,
+          title: {display: true, text: yLabel},
+          suggestedMax: options.suggestedMax,
+        },
+      },
+      plugins: {legend: {position: 'bottom'}},
+    },
+  });
+}
+
+fetch('/api/research/runs')
+  .then(r => r.json())
+  .then(data => {
+    const runs = data.runs;
+    buildRunChart(
+      'chart-run-gini',
+      runs,
+      (run, sid) => run.societies[sid]?.final_metrics?.inequality_gini ?? null,
+      'Gini',
+      {suggestedMax: 0.35},
+    );
+    buildRunChart(
+      'chart-run-public',
+      runs,
+      (run, sid) => run.societies[sid]?.communication?.public_share ?? null,
+      'Public Share',
+      {suggestedMax: 1},
+    );
+    buildRunChart(
+      'chart-run-gov',
+      runs,
+      (run, sid) => run.societies[sid]?.final_metrics?.governance_actions_per_agent ?? null,
+      'Actions / Agent',
+    );
+    buildRunChart(
+      'chart-run-power',
+      runs,
+      (run, sid) => run.societies[sid]?.power_policy_count ?? 0,
+      'Count',
+    );
+  });
+</script>
+{% endblock %}

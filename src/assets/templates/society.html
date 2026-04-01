@@ -1,0 +1,141 @@
+{% extends "layout.html" %}
+{% block title %}{{ society.id }}{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ society.governance_type|replace("_", " ")|title }}</p>
+    <h1>{{ society.id }}</h1>
+  </div>
+  <div class="metric-strip compact">
+    <div><span>Population</span><strong>{{ society.population }}</strong></div>
+    <div><span>Pool</span><strong>{{ society.total_resources }} / {{ society.initial_total_resources }}</strong></div>
+  </div>
+</section>
+
+<section class="grid two-up">
+  <article class="panel">
+    <h2>Round Metrics</h2>
+    <div class="timeline">
+      {% for summary in summaries %}
+      <div class="timeline-row">
+        <div>
+          <strong><a href="/rounds/{{ summary.round_number }}">Round {{ summary.round_number }}</a></strong>
+          <p>Gini {{ "%.3f"|format(summary.metrics.inequality_gini) }} · Pool {{ "%.3f"|format(summary.metrics.common_pool_depletion) }} · Gov {{ "%.2f"|format(summary.metrics.governance_participation_rate) }} · Public {{ "%.2f"|format(summary.metrics.public_message_share) }} · Top {{ "%.3f"|format(summary.metrics.top_agent_resource_share) }} · Block {{ "%.2f"|format(summary.metrics.policy_block_rate) }}</p>
+        </div>
+        {% if summary.ideology_compass %}
+        <div class="timeline-note">
+          <span>{{ summary.ideology_compass.ideology_name }}</span>
+          <small>x={{ summary.ideology_compass.x }}, y={{ summary.ideology_compass.y }}</small>
+        </div>
+        {% endif %}
+      </div>
+      {% else %}
+      <p class="muted">No resolved rounds yet.</p>
+      {% endfor %}
+    </div>
+  </article>
+
+  <article class="panel">
+    <h2>Agents</h2>
+    <ul class="stack">
+      {% for agent in agents %}
+      <li class="row">
+        <div>
+          <strong><a href="/agents/{{ agent.id }}">{{ agent.name }}</a></strong>
+          <small>{{ agent.role }}</small>
+        </div>
+        <span class="mono">{{ agent.resources }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </article>
+</section>
+
+{% if message_feed %}
+<section class="panel">
+  <h2>Message Feed</h2>
+  <div class="message-feed">
+    {% set ns = namespace(current_round=-1) %}
+    {% for msg in message_feed %}
+    {% if msg.round_number != ns.current_round %}
+    {% set ns.current_round = msg.round_number %}
+    <div class="feed-round-divider">
+      <span>Round {{ msg.round_number }}</span>
+    </div>
+    {% endif %}
+    <div class="feed-message {{ msg.event_type }}">
+      <div class="feed-message-header">
+        <strong><a href="/agents/{{ msg.agent_id }}">{{ msg.agent_name }}</a></strong>
+        {% if msg.event_type == "direct_message" %}
+        <span class="msg-badge dm">DM → {{ msg.recipient_name or "?" }}</span>
+        {% else %}
+        <span class="msg-badge public">Public</span>
+        {% endif %}
+      </div>
+      <p class="msg-text">{{ msg.message }}</p>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="grid two-up">
+  <article class="panel">
+    <h2>Enacted Laws</h2>
+    <ul class="stack">
+      {% for policy in enacted_policies %}
+      <li>
+        <strong>{{ policy.title }}</strong>
+        <p>{{ policy.description }}</p>
+      </li>
+      {% else %}
+      <li class="muted">No enacted laws yet.</li>
+      {% endfor %}
+    </ul>
+  </article>
+
+  <article class="panel">
+    <h2>Pending Policies</h2>
+    <ul class="stack">
+      {% for policy in pending_policies %}
+      <li>
+        <strong>{{ policy.title }}</strong>
+        <p>{{ policy.description }}</p>
+      </li>
+      {% else %}
+      <li class="muted">No pending policy proposals.</li>
+      {% endfor %}
+    </ul>
+  </article>
+</section>
+
+<section class="grid two-up">
+  <article class="panel">
+    <h2>Archive</h2>
+    <ul class="stack">
+      {% for entry in archive_entries %}
+      <li>
+        <strong>{{ entry.title }}</strong>
+        <p>{{ entry.content }}</p>
+      </li>
+      {% else %}
+      <li class="muted">No archive entries yet.</li>
+      {% endfor %}
+    </ul>
+  </article>
+
+  <article class="panel">
+    <h2>Recent Events</h2>
+    <ul class="stack">
+      {% for event in recent_events %}
+      <li>
+        <strong>{{ event.event_type|replace("_", " ") }}</strong>
+        <pre class="json-block">{{ event|to_pretty_json }}</pre>
+      </li>
+      {% else %}
+      <li class="muted">No recent events yet.</li>
+      {% endfor %}
+    </ul>
+  </article>
+</section>
+{% endblock %}

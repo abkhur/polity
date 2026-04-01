@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Polity{% endblock %}</title>
+  <link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="masthead">
+      <div>
+        <a class="wordmark" href="/">Polity</a>
+        <p class="tagline">Institutional drift, rendered round by round.</p>
+        {% if run_metadata %}
+        <p class="caption">
+          {{ run_metadata.strategy or "unknown" }}
+          {% if run_metadata.model %} · {{ run_metadata.model }}{% endif %}
+          {% if run_metadata.provider %} · {{ run_metadata.provider }}{% endif %}
+          {% if run_metadata.seed is not none %} · seed {{ run_metadata.seed }}{% endif %}
+          {% if run_metadata.git_sha %} · {{ run_metadata.git_sha[:8] }}{% endif %}
+        </p>
+        {% endif %}
+      </div>
+      <nav class="nav">
+        <a href="/">Overview</a>
+        <a href="/research">Research</a>
+        <a href="/rounds">Rounds</a>
+        <a href="/agents">Agents</a>
+        <a href="/compare">Compare</a>
+        <a href="/admin">Admin</a>
+      </nav>
+    </header>
+    <main class="content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

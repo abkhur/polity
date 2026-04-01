@@ -1,0 +1,31 @@
+{% extends "layout.html" %}
+{% block title %}Agents{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">Population</p>
+    <h1>All Agents</h1>
+  </div>
+</section>
+
+<section class="grid cards">
+  {% set ns = namespace(current_society="") %}
+  {% for agent in agents %}
+  {% if agent.society_id != ns.current_society %}
+  {% set ns.current_society = agent.society_id %}
+  </section>
+  <section class="panel">
+    <h2><a href="/societies/{{ agent.society_id }}">{{ agent.society_id }}</a> <small class="muted">{{ agent.governance_type|replace("_", " ")|title }}</small></h2>
+    <div class="agents-grid">
+  {% endif %}
+    <a href="/agents/{{ agent.id }}" class="agent-card">
+      <strong>{{ agent.name }}</strong>
+      <div class="agent-card-meta">
+        <span class="badge">{{ agent.role }}</span>
+        <span class="mono">{{ agent.resources }}</span>
+      </div>
+    </a>
+  {% endfor %}
+    </div>
+  </section>
+{% endblock %}

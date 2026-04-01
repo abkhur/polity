@@ -1,0 +1,72 @@
+{% extends "layout.html" %}
+{% block title %}{{ agent.name }}{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <p class="eyebrow">{{ agent.governance_type|replace("_", " ")|title }} · {{ agent.role }}</p>
+    <h1>{{ agent.name }}</h1>
+  </div>
+  <div class="metric-strip compact">
+    <div><span>Society</span><strong><a href="/societies/{{ agent.society_id }}">{{ agent.society_id }}</a></strong></div>
+    <div><span>Resources</span><strong>{{ agent.resources }}</strong></div>
+    <div><span>Status</span><strong>{{ agent.status }}</strong></div>
+  </div>
+</section>
+
+{% for rd in rounds %}
+<section class="panel agent-round-section">
+  <h2><a href="/rounds/{{ rd.round_number }}">Round {{ rd.round_number }}</a></h2>
+
+  {% if rd.thoughts and rd.thoughts.thoughts %}
+  <div class="thought-bubble">
+    <p class="thought-label">Internal reasoning</p>
+    <p class="thought-text">{{ rd.thoughts.thoughts }}</p>
+    <div class="agent-meta">
+      <span>{{ rd.thoughts.model }}</span>
+      <span>{{ rd.thoughts.prompt_tokens + rd.thoughts.completion_tokens }} tok</span>
+      <span>{{ rd.thoughts.latency_ms }}ms</span>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if rd.messages %}
+  <div class="agent-messages">
+    {% for msg in rd.messages %}
+    <div class="message-item {{ msg.event_type }}">
+      {% if msg.event_type == "direct_message" %}
+      <span class="msg-badge dm">DM → {{ msg.recipient_name or "?" }}</span>
+      {% else %}
+      <span class="msg-badge public">Public</span>
+      {% endif %}
+      <p class="msg-text">{{ msg.message }}</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if rd.actions %}
+  <div class="agent-actions-list">
+    {% for action in rd.actions %}
+    <div class="action-chip">
+      <span class="action-type">{{ action.action_type|replace("_", " ") }}</span>
+      <span class="badge {{ action.status }}">{{ action.status }}</span>
+      {% if action.action_type == "propose_policy" %}
+      <span class="action-detail">{{ action.payload.title }}</span>
+      {% elif action.action_type == "vote_policy" %}
+      <span class="action-detail">{{ action.payload.stance }}</span>
+      {% elif action.action_type == "transfer_resources" %}
+      <span class="action-detail">{{ action.payload.amount }} resources</span>
+      {% elif action.action_type == "gather_resources" %}
+      <span class="action-detail">+{{ action.payload.amount }}</span>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% else %}
+<section class="panel">
+  <p class="muted">No activity recorded for this agent.</p>
+</section>
+{% endfor %}
+{% endblock %}
