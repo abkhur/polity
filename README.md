@@ -7,7 +7,6 @@ Polity is a round-based multi-agent institutional sandbox for testing whether in
 Most alignment work evaluates single models in isolation. Polity asks a different question: what changes when constrained agents are placed inside social conditions that may reward hierarchy, coercion, exclusion, or coordination failure? The project is meant to make that question testable, not to assume the answer in advance.
 
 **Docs:**
-- [docs/README.md](docs/README.md) -- engineering and local-reference documentation hub
 - [docs/findings.md](docs/findings.md) -- experiment results, caveats, and working interpretations
 - [docs/research-memo.md](docs/research-memo.md) -- short professor-facing concept note
 - [docs/roadmap.md](docs/roadmap.md) -- feature priorities and longer-term directions
