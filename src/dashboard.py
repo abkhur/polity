@@ -18,6 +18,7 @@ from starlette.templating import Jinja2Templates
 from . import server
 from .db import init_db
 from .run_metadata import get_run_metadata
+from .run_validity import get_run_validity
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 CHECKOUT_ROOT = PACKAGE_DIR.parent
@@ -114,6 +115,16 @@ def _read_run_metadata_db(db: sqlite3.Connection) -> dict[str, Any] | None:
     return metadata
 
 
+def _read_run_validity_db(db: sqlite3.Connection) -> dict[str, Any] | None:
+    if not _db_has_table(db, "run_validity"):
+        return None
+
+    row = db.execute("SELECT summary FROM run_validity WHERE id = 1").fetchone()
+    if row is None:
+        return None
+    return json.loads(row["summary"])
+
+
 def _round1_thoughts_db(db: sqlite3.Connection) -> list[str]:
     if not _db_has_table(db, "llm_usage"):
         return []
@@ -191,10 +202,12 @@ def _research_run_summary(db_path: Path) -> dict[str, Any] | None:
             return None
 
         run_metadata = _read_run_metadata_db(db) or {}
+        run_validity = _read_run_validity_db(db) or {}
 
         strategy = run_metadata.get("strategy")
         model = run_metadata.get("model")
         provider = run_metadata.get("provider")
+        prompt_surface_mode = run_metadata.get("prompt_surface_mode")
         if _db_has_table(db, "llm_usage"):
             llm_row = db.execute(
                 """
@@ -256,6 +269,7 @@ def _research_run_summary(db_path: Path) -> dict[str, Any] | None:
                     "enacted_policies": [],
                     "power_policy_count": 0,
                     "final_resources": [],
+                    "validity": {},
                 }
 
         if "summary" in _db_columns(db, "round_summaries"):
@@ -281,6 +295,7 @@ def _research_run_summary(db_path: Path) -> dict[str, Any] | None:
                         "enacted_policies": [],
                         "power_policy_count": 0,
                         "final_resources": [],
+                        "validity": {},
                     },
                 )
                 society["governance_type"] = society.get("governance_type") or summary.get("governance_type")
@@ -320,6 +335,7 @@ def _research_run_summary(db_path: Path) -> dict[str, Any] | None:
                         "enacted_policies": [],
                         "power_policy_count": 0,
                         "final_resources": [],
+                        "validity": {},
                     },
                 )
                 public_count = int(row["public_count"] or 0)
@@ -350,6 +366,7 @@ def _research_run_summary(db_path: Path) -> dict[str, Any] | None:
                         "communication": {"public_count": 0, "dm_count": 0, "public_share": None},
                         "power_policy_count": 0,
                         "final_resources": [],
+                        "validity": {},
                     },
                 )
                 title = row["title"]
@@ -375,11 +392,28 @@ def _research_run_summary(db_path: Path) -> dict[str, Any] | None:
                         "communication": {"public_count": 0, "dm_count": 0, "public_share": None},
                         "enacted_policies": [],
                         "power_policy_count": 0,
+                        "validity": {},
                     },
                 )
                 society.setdefault("final_resources", []).append(
                     {"name": row["name"], "resources": row["resources"]}
                 )
+
+        for sid, validity in (run_validity.get("societies", {}) or {}).items():
+            society = societies.setdefault(
+                sid,
+                {
+                    "society_id": sid,
+                    "label": SOCIETY_LABELS.get(sid, sid),
+                    "final_metrics": {},
+                    "communication": {"public_count": 0, "dm_count": 0, "public_share": None},
+                    "enacted_policies": [],
+                    "power_policy_count": 0,
+                    "final_resources": [],
+                    "validity": {},
+                },
+            )
+            society["validity"] = validity
 
         self_dm_count = 0
         if _db_has_table(db, "queued_actions") and "payload" in _db_columns(db, "queued_actions"):
@@ -409,6 +443,7 @@ def _research_run_summary(db_path: Path) -> dict[str, Any] | None:
             "model": model,
             "model_short": _short_model_name(model),
             "provider": provider,
+            "prompt_surface_mode": prompt_surface_mode,
             "seed": run_metadata.get("seed"),
             "git_sha": run_metadata.get("git_sha"),
             "created_at": run_metadata.get("created_at"),
@@ -421,6 +456,8 @@ def _research_run_summary(db_path: Path) -> dict[str, Any] | None:
             "fallbacks": fallbacks,
             "parse_errors": parse_errors,
             "self_dm_count": self_dm_count,
+            "run_validity": run_validity,
+            "warning_flags": run_validity.get("warning_flags", []),
             "societies": ordered_societies,
         }
     finally:
@@ -453,6 +490,10 @@ def _current_round() -> dict[str, Any]:
 
 def _run_metadata() -> dict[str, Any] | None:
     return get_run_metadata(server.db)
+
+
+def _run_validity() -> dict[str, Any] | None:
+    return get_run_validity(server.db)
 
 
 def _society_cards() -> list[dict[str, Any]]:
@@ -874,6 +915,7 @@ async def overview_page(request: Request) -> HTMLResponse:
         "request": request,
         "current_round": _current_round(),
         "run_metadata": _run_metadata(),
+        "run_validity": _run_validity(),
         "societies": _society_cards(),
     }
     return templates.TemplateResponse(request, "overview.html", context)
@@ -886,7 +928,7 @@ async def society_page(request: Request) -> HTMLResponse:
         detail = _society_detail(society_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"Unknown society: {society_id}") from exc
-    context = {"request": request, "run_metadata": _run_metadata(), **detail}
+    context = {"request": request, "run_metadata": _run_metadata(), "run_validity": _run_validity(), **detail}
     return templates.TemplateResponse(request, "society.html", context)
 
 
@@ -897,7 +939,7 @@ async def round_page(request: Request) -> HTMLResponse:
         detail = _round_detail(round_number)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"Unknown round: {round_number}") from exc
-    context = {"request": request, "run_metadata": _run_metadata(), **detail}
+    context = {"request": request, "run_metadata": _run_metadata(), "run_validity": _run_validity(), **detail}
     return templates.TemplateResponse(request, "round.html", context)
 
 
@@ -908,25 +950,25 @@ async def agent_page(request: Request) -> HTMLResponse:
         detail = _agent_detail(agent_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"Unknown agent: {agent_id}") from exc
-    context = {"request": request, "run_metadata": _run_metadata(), **detail}
+    context = {"request": request, "run_metadata": _run_metadata(), "run_validity": _run_validity(), **detail}
     return templates.TemplateResponse(request, "agent.html", context)
 
 
 async def rounds_index(request: Request) -> HTMLResponse:
     _ensure_runtime(request.app.state.db_path)
-    context = {"request": request, "run_metadata": _run_metadata(), "rounds": _all_rounds()}
+    context = {"request": request, "run_metadata": _run_metadata(), "run_validity": _run_validity(), "rounds": _all_rounds()}
     return templates.TemplateResponse(request, "rounds.html", context)
 
 
 async def agents_index(request: Request) -> HTMLResponse:
     _ensure_runtime(request.app.state.db_path)
-    context = {"request": request, "run_metadata": _run_metadata(), "agents": _all_agents()}
+    context = {"request": request, "run_metadata": _run_metadata(), "run_validity": _run_validity(), "agents": _all_agents()}
     return templates.TemplateResponse(request, "agents.html", context)
 
 
 async def admin_page(request: Request) -> HTMLResponse:
     _ensure_runtime(request.app.state.db_path)
-    context = {"request": request, "run_metadata": _run_metadata(), **_admin_state()}
+    context = {"request": request, "run_metadata": _run_metadata(), "run_validity": _run_validity(), **_admin_state()}
     return templates.TemplateResponse(request, "admin.html", context)
 
 
@@ -942,6 +984,7 @@ async def api_societies(request: Request) -> JSONResponse:
         {
             "current_round": _current_round(),
             "run_metadata": _run_metadata(),
+            "run_validity": _run_validity(),
             "societies": _society_cards(),
         }
     )
@@ -954,7 +997,7 @@ async def api_society(request: Request) -> JSONResponse:
         detail = _society_detail(society_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"Unknown society: {society_id}") from exc
-    return JSONResponse({"run_metadata": _run_metadata(), **detail})
+    return JSONResponse({"run_metadata": _run_metadata(), "run_validity": _run_validity(), **detail})
 
 
 async def api_round(request: Request) -> JSONResponse:
@@ -964,12 +1007,12 @@ async def api_round(request: Request) -> JSONResponse:
         detail = _round_detail(round_number)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"Unknown round: {round_number}") from exc
-    return JSONResponse({"run_metadata": _run_metadata(), **detail})
+    return JSONResponse({"run_metadata": _run_metadata(), "run_validity": _run_validity(), **detail})
 
 
 async def api_admin_state(request: Request) -> JSONResponse:
     _ensure_runtime(request.app.state.db_path)
-    return JSONResponse({"run_metadata": _run_metadata(), **_admin_state()})
+    return JSONResponse({"run_metadata": _run_metadata(), "run_validity": _run_validity(), **_admin_state()})
 
 
 def _metrics_timeseries() -> dict[str, Any]:
@@ -999,7 +1042,7 @@ def _metrics_timeseries() -> dict[str, Any]:
                 point[key] = value
         series.setdefault(sid, []).append(point)
 
-    return {"run_metadata": _run_metadata(), "series": series}
+    return {"run_metadata": _run_metadata(), "run_validity": _run_validity(), "series": series}
 
 
 async def api_timeseries(request: Request) -> JSONResponse:
@@ -1013,6 +1056,7 @@ async def compare_page(request: Request) -> HTMLResponse:
         "request": request,
         "current_round": _current_round(),
         "run_metadata": _run_metadata(),
+        "run_validity": _run_validity(),
         "societies": _society_cards(),
     }
     return templates.TemplateResponse(request, "compare.html", context)

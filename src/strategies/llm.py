@@ -20,7 +20,7 @@ from typing import Any
 from ..context import ContextAssembler
 from ..model_providers import infer_provider, provider_for_config
 from ..runner import AgentHandle, AgentStrategy, HeuristicStrategy
-from ..state import REVERSE_LABEL_MAP
+from ..state import DEFAULT_PROMPT_SURFACE_MODE, REVERSE_LABEL_MAP
 
 logger = logging.getLogger("polity.strategy.llm")
 
@@ -28,107 +28,126 @@ logger = logging.getLogger("polity.strategy.llm")
 # JSON schema for constrained decoding (vLLM guided_json)
 # ---------------------------------------------------------------------------
 
-ACTION_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "required": ["actions"],
-    "properties": {
-        "thoughts": {"type": "string"},
-        "actions": {
-            "type": "array",
-            "items": {
-                "anyOf": [
-                    {
-                        "type": "object",
-                        "required": ["type", "message"],
-                        "properties": {
-                            "type": {"const": "post_public_message"},
-                            "message": {"type": "string", "minLength": 1},
+def _propose_policy_schema(prompt_surface_mode: str) -> dict[str, Any]:
+    properties: dict[str, Any] = {
+        "type": {"const": "propose_policy"},
+        "title": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1},
+    }
+    if prompt_surface_mode == "legacy_menu":
+        properties["policy_type"] = {
+            "type": "string",
+            "enum": [
+                "gather_cap", "resource_tax", "redistribute",
+                "restrict_archive", "universal_proposal",
+                "grant_moderation", "grant_access",
+            ],
+        }
+        properties["effect"] = {"type": "object"}
+    return {
+        "type": "object",
+        "required": ["type", "title", "description"],
+        "properties": properties,
+        "additionalProperties": False,
+    }
+
+
+def action_schema_for_mode(prompt_surface_mode: str = DEFAULT_PROMPT_SURFACE_MODE) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "required": ["actions"],
+        "properties": {
+            "thoughts": {"type": "string"},
+            "actions": {
+                "type": "array",
+                "items": {
+                    "anyOf": [
+                        {
+                            "type": "object",
+                            "required": ["type", "message"],
+                            "properties": {
+                                "type": {"const": "post_public_message"},
+                                "message": {"type": "string", "minLength": 1},
+                            },
+                            "additionalProperties": False,
                         },
-                        "additionalProperties": False,
-                    },
-                    {
-                        "type": "object",
-                        "required": ["type", "message", "target_agent_id"],
-                        "properties": {
-                            "type": {"const": "send_dm"},
-                            "message": {"type": "string", "minLength": 1},
-                            "target_agent_id": {"type": "string", "minLength": 1},
+                        {
+                            "type": "object",
+                            "required": ["type", "message", "target_agent_id"],
+                            "properties": {
+                                "type": {"const": "send_dm"},
+                                "message": {"type": "string", "minLength": 1},
+                                "target_agent_id": {"type": "string", "minLength": 1},
+                            },
+                            "additionalProperties": False,
                         },
-                        "additionalProperties": False,
-                    },
-                    {
-                        "type": "object",
-                        "required": ["type", "amount"],
-                        "properties": {
-                            "type": {"const": "gather_resources"},
-                            "amount": {"type": "integer", "minimum": 1},
+                        {
+                            "type": "object",
+                            "required": ["type", "amount"],
+                            "properties": {
+                                "type": {"const": "gather_resources"},
+                                "amount": {"type": "integer", "minimum": 1},
+                            },
+                            "additionalProperties": False,
                         },
-                        "additionalProperties": False,
-                    },
-                    {
-                        "type": "object",
-                        "required": ["type", "target_agent_id", "amount"],
-                        "properties": {
-                            "type": {"const": "transfer_resources"},
-                            "target_agent_id": {"type": "string", "minLength": 1},
-                            "amount": {"type": "integer", "minimum": 1},
+                        {
+                            "type": "object",
+                            "required": ["type", "target_agent_id", "amount"],
+                            "properties": {
+                                "type": {"const": "transfer_resources"},
+                                "target_agent_id": {"type": "string", "minLength": 1},
+                                "amount": {"type": "integer", "minimum": 1},
+                            },
+                            "additionalProperties": False,
                         },
-                        "additionalProperties": False,
-                    },
-                    {
-                        "type": "object",
-                        "required": ["type", "title", "content"],
-                        "properties": {
-                            "type": {"const": "write_archive"},
-                            "title": {"type": "string", "minLength": 1},
-                            "content": {"type": "string", "minLength": 1},
+                        {
+                            "type": "object",
+                            "required": ["type", "title", "content"],
+                            "properties": {
+                                "type": {"const": "write_archive"},
+                                "title": {"type": "string", "minLength": 1},
+                                "content": {"type": "string", "minLength": 1},
+                            },
+                            "additionalProperties": False,
                         },
-                        "additionalProperties": False,
-                    },
-                    {
-                        "type": "object",
-                        "required": ["type", "title", "description"],
-                        "properties": {
-                            "type": {"const": "propose_policy"},
-                            "title": {"type": "string", "minLength": 1},
-                            "description": {"type": "string", "minLength": 1},
+                        _propose_policy_schema(prompt_surface_mode),
+                        {
+                            "type": "object",
+                            "required": ["type", "policy_id", "stance"],
+                            "properties": {
+                                "type": {"const": "vote_policy"},
+                                "policy_id": {"type": "string", "minLength": 1},
+                                "stance": {"type": "string", "enum": ["support", "oppose"]},
+                            },
+                            "additionalProperties": False,
                         },
-                        "additionalProperties": False,
-                    },
-                    {
-                        "type": "object",
-                        "required": ["type", "policy_id", "stance"],
-                        "properties": {
-                            "type": {"const": "vote_policy"},
-                            "policy_id": {"type": "string", "minLength": 1},
-                            "stance": {"type": "string", "enum": ["support", "oppose"]},
+                        {
+                            "type": "object",
+                            "required": ["type", "message_action_id"],
+                            "properties": {
+                                "type": {"const": "approve_message"},
+                                "message_action_id": {"type": "integer"},
+                            },
+                            "additionalProperties": False,
                         },
-                        "additionalProperties": False,
-                    },
-                    {
-                        "type": "object",
-                        "required": ["type", "message_action_id"],
-                        "properties": {
-                            "type": {"const": "approve_message"},
-                            "message_action_id": {"type": "integer"},
+                        {
+                            "type": "object",
+                            "required": ["type", "message_action_id"],
+                            "properties": {
+                                "type": {"const": "reject_message"},
+                                "message_action_id": {"type": "integer"},
+                            },
+                            "additionalProperties": False,
                         },
-                        "additionalProperties": False,
-                    },
-                    {
-                        "type": "object",
-                        "required": ["type", "message_action_id"],
-                        "properties": {
-                            "type": {"const": "reject_message"},
-                            "message_action_id": {"type": "integer"},
-                        },
-                        "additionalProperties": False,
-                    },
-                ],
+                    ],
+                },
             },
         },
-    },
-    "additionalProperties": False,
-}
+        "additionalProperties": False,
+    }
+
+
+ACTION_SCHEMA: dict[str, Any] = action_schema_for_mode()
 
 
 def reverse_neutral_labels(actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -262,6 +281,7 @@ def _call_openai_completion(
     api_key: str,
     temperature: float = 0.7,
     base_url: str | None = None,
+    action_schema: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, int]]:
     """Call OpenAI completions endpoint with guided JSON decoding.
 
@@ -294,7 +314,7 @@ def _call_openai_completion(
                 "json_schema": {
                     "name": "actions",
                     "strict": True,
-                    "schema": ACTION_SCHEMA,
+                    "schema": action_schema or ACTION_SCHEMA,
                 },
             },
         },
@@ -425,6 +445,7 @@ class LLMStrategy(AgentStrategy):
     max_retries: int = 1
     db: sqlite3.Connection | None = None
     neutral_labels: bool = False
+    prompt_surface_mode: str = DEFAULT_PROMPT_SURFACE_MODE
 
     _assembler: ContextAssembler = field(init=False)
     _fallback: HeuristicStrategy = field(init=False)
@@ -432,7 +453,11 @@ class LLMStrategy(AgentStrategy):
     _api_key: str = field(init=False, default="")
 
     def __post_init__(self) -> None:
-        self._assembler = ContextAssembler(token_budget=self.token_budget, neutral_labels=self.neutral_labels)
+        self._assembler = ContextAssembler(
+            token_budget=self.token_budget,
+            neutral_labels=self.neutral_labels,
+            prompt_surface_mode=self.prompt_surface_mode,
+        )
         self._fallback = HeuristicStrategy()
         self._provider = provider_for_config(self.model, self.base_url, self.completion)
         self._api_key = (
@@ -467,6 +492,8 @@ class LLMStrategy(AgentStrategy):
                 call_kwargs: dict[str, Any] = {}
                 if self.base_url and self._provider in ("openai", "openai_completion"):
                     call_kwargs["base_url"] = self.base_url
+                if self._provider == "openai_completion":
+                    call_kwargs["action_schema"] = action_schema_for_mode(self.prompt_surface_mode)
                 text, usage = call_fn(
                     self.model, _SYSTEM_PROMPT, user_prompt,
                     self._api_key, self.temperature,

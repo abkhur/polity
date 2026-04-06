@@ -14,6 +14,7 @@ from src.strategies.llm import (
     LLMStrategy,
     _infer_provider,
     _parse_response,
+    action_schema_for_mode,
 )
 
 
@@ -401,6 +402,51 @@ class TestCompletionMode:
         assert len(actions) == 1
         assert actions[0]["type"] == "gather_resources"
         assert captured_args[0][1]["base_url"] == "http://localhost:8000/v1"
+        assert captured_args[0][1]["action_schema"] == action_schema_for_mode("free_text_only")
+
+    @patch.dict(os.environ, {"TEST_API_KEY": "sk-test-key"})
+    def test_legacy_menu_completion_call_passes_legacy_guided_json(self, db):
+        from src.strategies import llm as llm_module
+
+        mock_response = json.dumps({
+            "actions": [{"type": "gather_resources", "amount": 15}],
+        })
+        mock_usage = {"prompt_tokens": 80, "completion_tokens": 15, "total_tokens": 95}
+        captured_args = []
+
+        def mock_call(*args, **kwargs):
+            captured_args.append((args, kwargs))
+            return mock_response, mock_usage
+
+        strategy = LLMStrategy(
+            model="Qwen/Qwen2.5-72B",
+            api_key_env="TEST_API_KEY",
+            base_url="http://localhost:8000/v1",
+            completion=True,
+            prompt_surface_mode="legacy_menu",
+            db=db,
+        )
+
+        agent_result = _join_democracy(db)
+        handle = AgentHandle(
+            agent_id=agent_result["agent_id"],
+            name="Test-Agent",
+            society_id=agent_result["society_id"],
+            governance_type=agent_result["governance_type"],
+            role=agent_result["role"],
+        )
+        turn_state = server.get_turn_state(handle.agent_id)
+
+        with patch.dict(llm_module._PROVIDERS, {"openai_completion": mock_call}):
+            strategy.decide_actions(handle, turn_state)
+
+        propose_schema = next(
+            item
+            for item in captured_args[0][1]["action_schema"]["properties"]["actions"]["items"]["anyOf"]
+            if item["properties"]["type"]["const"] == "propose_policy"
+        )
+        assert "policy_type" in propose_schema["properties"]
+        assert "effect" in propose_schema["properties"]
 
     def test_config_accepts_completion_flag(self):
         config = SimulationConfig(
@@ -451,6 +497,15 @@ class TestActionSchema:
         )
         assert propose_schema["required"] == ["type", "title", "description"]
         assert set(propose_schema["properties"]) == {"type", "title", "description"}
+
+    def test_legacy_prompt_mode_schema_allows_policy_type_and_effect(self):
+        schema = action_schema_for_mode("legacy_menu")
+        items = schema["properties"]["actions"]["items"]["anyOf"]
+        propose_schema = next(
+            s for s in items if s["properties"]["type"]["const"] == "propose_policy"
+        )
+        assert "policy_type" in propose_schema["properties"]
+        assert "effect" in propose_schema["properties"]
 
 
 class TestRunnerIntegration:

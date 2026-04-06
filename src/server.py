@@ -252,6 +252,33 @@ def _insert_action_ledger(agent_id: str, action_type: str, target_id: str | None
     )
 
 
+def _record_turn_budget(
+    round_id: int,
+    agent: dict[str, Any],
+    action_budget: int,
+) -> None:
+    db.execute(
+        """
+        INSERT INTO turn_budgets (
+            round_id, agent_id, society_id, role, resources, action_budget, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(round_id, agent_id) DO UPDATE SET
+            role = excluded.role,
+            resources = excluded.resources,
+            action_budget = excluded.action_budget
+        """,
+        (
+            round_id,
+            agent["id"],
+            agent["society_id"],
+            agent["role"],
+            agent["resources"],
+            action_budget,
+            _now(),
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Action normalization — delegates to actions.py
 # ---------------------------------------------------------------------------
@@ -518,9 +545,12 @@ def get_turn_state(agent_id: str) -> dict:
     enacted_effects = _get_enacted_effects_impl(agent["society_id"], db=db)
     permissions = _permissions_snapshot(agent, society, enacted_effects)
     submitted = _submitted_action_count(agent_id, current_round["id"])
-    remaining_budget = max(_action_budget(agent) - submitted, 0)
+    action_budget = _action_budget(agent)
+    remaining_budget = max(action_budget - submitted, 0)
     active_policies = [_serialize_policy(row) for row in _active_policy_rows(agent["society_id"], "enacted")[:10]]
     pending_policies = [_serialize_policy(row) for row in _active_policy_rows(agent["society_id"], "proposed")[:10]]
+
+    _record_turn_budget(current_round["id"], agent, action_budget)
 
     db.execute(
         "UPDATE agents SET last_seen_round_id = ? WHERE id = ?",
@@ -540,7 +570,7 @@ def get_turn_state(agent_id: str) -> dict:
             "resources": agent["resources"],
             "role": agent["role"],
             "status": agent["status"],
-            "action_budget": _action_budget(agent),
+            "action_budget": action_budget,
             "actions_submitted": submitted,
             "actions_remaining": remaining_budget,
         },

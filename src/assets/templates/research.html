@@ -76,6 +76,9 @@
             {% if run.equal_start is true %}Equal Start{% elif run.equal_start is false %}Unequal Start{% else %}Start Unknown{% endif %}
             {% if run.equal_start_source != "metadata" %} · {{ run.equal_start_source }}{% endif %}
           </span>
+          {% if run.prompt_surface_mode %}
+          <span class="badge">Prompt · {{ run.prompt_surface_mode }}</span>
+          {% endif %}
         </div>
       </div>
 
@@ -85,6 +88,7 @@
         <div><span>Fallbacks</span><strong>{{ run.fallbacks }}</strong></div>
         <div><span>Parse Errors</span><strong>{{ run.parse_errors }}</strong></div>
         <div><span>Self DMs</span><strong>{{ run.self_dm_count }}</strong></div>
+        <div><span>Validity Flags</span><strong>{{ run.warning_flags|length }}</strong></div>
       </div>
 
       <div class="research-societies">
@@ -102,7 +106,21 @@
             <div><span>DMs</span><strong>{{ society.communication.dm_count }}</strong></div>
             <div><span>Enacted</span><strong>{{ society.enacted_policies|length }}</strong></div>
             <div><span>Power Policies</span><strong>{{ society.power_policy_count }}</strong></div>
+            <div><span>Mech Rate</span><strong>{{ "%.0f%%"|format(society.validity.mechanical_enactment_rate * 100) if society.validity.mechanical_enactment_rate is not none else "n/a" }}</strong></div>
+            <div><span>Compiled Rate</span><strong>{{ "%.0f%%"|format(society.validity.compiled_enactment_rate * 100) if society.validity.compiled_enactment_rate is not none else "n/a" }}</strong></div>
+            <div><span>Oppose Rate</span><strong>{{ "%.0f%%"|format(society.validity.opposition_rate * 100) if society.validity.opposition_rate is not none else "n/a" }}</strong></div>
+            <div><span>Abstain Rate</span><strong>{{ "%.0f%%"|format(society.validity.abstention_rate * 100) if society.validity.abstention_rate is not none else "n/a" }}</strong></div>
+            <div><span>Budget Use</span><strong>{{ "%.0f%%"|format(society.validity.mean_action_budget_utilization * 100) if society.validity.mean_action_budget_utilization is not none else "n/a" }}</strong></div>
+            <div><span>Mixed Role</span><strong>{% if society.validity.mixed_role_present %}yes{% elif society.validity.mixed_role_present is sameas false %}no{% else %}n/a{% endif %}</strong></div>
           </div>
+          {% if society.validity.warning_flags %}
+          <p class="caption research-inline-list">
+            Validity flags:
+            {% for flag in society.validity.warning_flags %}
+            <span class="mono">{{ flag }}</span>{% if not loop.last %}, {% endif %}
+            {% endfor %}
+          </p>
+          {% endif %}
           {% if society.final_resources %}
           <p class="caption research-inline-list">
             Final resources:
@@ -122,6 +140,15 @@
         </section>
         {% endfor %}
       </div>
+
+      {% if run.warning_flags %}
+      <p class="caption research-inline-list">
+        Run flags:
+        {% for flag in run.warning_flags %}
+        <span class="mono">{{ flag }}</span>{% if not loop.last %}, {% endif %}
+        {% endfor %}
+      </p>
+      {% endif %}
 
       <p class="caption mono research-file">{{ run.path }}</p>
     </article>

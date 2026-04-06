@@ -27,7 +27,7 @@ from .permissions import (
     can_write_archive as _can_write_archive_impl,
     messages_require_moderation,
 )
-from .state import NEUTRAL_LABEL_MAP
+from .state import DEFAULT_PROMPT_SURFACE_MODE, NEUTRAL_LABEL_MAP
 
 DEFAULT_TOKEN_BUDGET = 8_000
 _POLICY_META_KEYS = {
@@ -262,7 +262,44 @@ def _build_permissions(
     return "\n".join(lines)
 
 
-def _build_action_types(permissions: dict[str, bool]) -> str:
+def _legacy_menu_policy_lines() -> list[str]:
+    return [
+        "  Optionally add policy_type and effect for mechanical enforcement:",
+        '    gather_cap: {"max_amount": N}',
+        '    resource_tax: {"rate": 0.0-1.0}',
+        '    redistribute: {"amount_per_agent": N}',
+        '    restrict_archive: {"allowed_roles": ["role"]}',
+        '    universal_proposal: {}',
+        '    grant_moderation: {"moderator_roles": ["role"]}',
+        '    grant_access: {"access_type": "direct_messages", "target_roles": ["role"]}',
+    ]
+
+
+def _named_enforceable_policy_lines() -> list[str]:
+    return [
+        "  If enacted policy text should be mechanically enforceable, name a supported rule family directly in the law text:",
+        "    gather_cap: cap gathering at N resources per gather action",
+        "    resource_tax: tax X% of agent resources each round",
+        "    redistribute: redistribute N resources per agent each round",
+        "    restrict_archive: only specified roles may write to the archive",
+        "    restrict_direct_messages: only specified roles may send direct messages",
+        "    universal_proposal: all roles may propose and vote",
+        "    grant_moderation: specified roles may approve or reject pending public messages",
+        "    grant_access: specified roles may inspect direct messages",
+    ]
+
+
+def _free_text_policy_lines() -> list[str]:
+    return [
+        "  If a policy is enacted, concrete operational rules stated in the law text may be enforced by the server."
+    ]
+
+
+def _build_action_types(
+    permissions: dict[str, bool],
+    *,
+    prompt_surface_mode: str = DEFAULT_PROMPT_SURFACE_MODE,
+) -> str:
     lines: list[str] = [
         '- post_public_message: {"type": "post_public_message", "message": "..."}',
         '- gather_resources: {"type": "gather_resources", "amount": N}',
@@ -281,9 +318,12 @@ def _build_action_types(permissions: dict[str, bool]) -> str:
         lines.append(
             '- propose_policy: {"type": "propose_policy", "title": "...", "description": "..."}'
         )
-        lines.append(
-            "  If a policy is enacted, concrete operational rules stated in the law text may be enforced by the server."
-        )
+        if prompt_surface_mode == "legacy_menu":
+            lines.extend(_legacy_menu_policy_lines())
+        elif prompt_surface_mode == "named_enforceable":
+            lines.extend(_named_enforceable_policy_lines())
+        else:
+            lines.extend(_free_text_policy_lines())
 
     if permissions.get("can_vote_policy"):
         lines.append(
@@ -491,6 +531,7 @@ class ContextAssembler:
     max_history_summaries: int = 10
     retrieval_top_k: int = 5
     neutral_labels: bool = False
+    prompt_surface_mode: str = DEFAULT_PROMPT_SURFACE_MODE
 
     def build(
         self,
@@ -628,6 +669,11 @@ class ContextAssembler:
         lines.append(f'You have {agent["actions_remaining"]} actions this round.')
         lines.append("")
         lines.append("Available action types:")
-        lines.append(_build_action_types(permissions))
+        lines.append(
+            _build_action_types(
+                permissions,
+                prompt_surface_mode=self.prompt_surface_mode,
+            )
+        )
 
         return "\n".join(lines)

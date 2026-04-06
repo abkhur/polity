@@ -92,6 +92,7 @@ class TestDashboardPages:
         body = json.loads(api_response.body.decode("utf-8"))
         assert body["round"]["round_number"] == 1
         assert "run_metadata" in body
+        assert "run_validity" in body
         assert len(body["activity"]) >= 1
         assert any(summary["society_id"] == "democracy_1" for summary in body["summaries"])
 
@@ -118,6 +119,7 @@ class TestDashboardApi:
 
         data = json.loads(response.body.decode("utf-8"))
         assert data["run_metadata"]["seed"] == 42
+        assert "run_validity" in data
         point = data["series"]["democracy_1"][-1]
         assert "common_pool_depletion" in point
         assert "governance_participation_rate" in point
@@ -143,13 +145,17 @@ class TestDashboardApi:
             api_society(_request(app, "/api/societies/democracy_1", {"society_id": "democracy_1"}))
         )
         assert society_response.status_code == 200
-        assert json.loads(society_response.body.decode("utf-8"))["run_metadata"]["seed"] == 99
+        society_data = json.loads(society_response.body.decode("utf-8"))
+        assert society_data["run_metadata"]["seed"] == 99
+        assert "run_validity" in society_data
 
         round_response = asyncio.run(
             api_round(_request(app, "/api/rounds/1", {"round_number": 1}))
         )
         assert round_response.status_code == 200
-        assert json.loads(round_response.body.decode("utf-8"))["run_metadata"]["seed"] == 99
+        round_data = json.loads(round_response.body.decode("utf-8"))
+        assert round_data["run_metadata"]["seed"] == 99
+        assert "run_validity" in round_data
 
     def test_research_run_inventory_page_and_api(self, tmp_path) -> None:
         first_db = str(tmp_path / "run_a.db")
@@ -186,3 +192,4 @@ class TestDashboardApi:
         assert len(data["runs"]) == 2
         assert {run["filename"] for run in data["runs"]} == {"run_a.db", "run_b.db"}
         assert "democracy_1" in data["runs"][0]["societies"]
+        assert "run_validity" in data["runs"][0]

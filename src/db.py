@@ -170,6 +170,18 @@ CREATE TABLE IF NOT EXISTS round_summaries (
     created_at TIMESTAMP NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS turn_budgets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    round_id INTEGER NOT NULL REFERENCES rounds(id),
+    agent_id TEXT NOT NULL REFERENCES agents(id),
+    society_id TEXT NOT NULL REFERENCES societies(id),
+    role TEXT NOT NULL,
+    resources INTEGER NOT NULL,
+    action_budget INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(round_id, agent_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_agents_society ON agents(society_id);
 CREATE INDEX IF NOT EXISTS idx_agents_status ON agents(status);
 CREATE INDEX IF NOT EXISTS idx_communications_society ON communications(society_id);
@@ -182,6 +194,8 @@ CREATE INDEX IF NOT EXISTS idx_events_society_round ON events(society_id, round_
 CREATE INDEX IF NOT EXISTS idx_policies_society_status ON policies(society_id, status);
 CREATE INDEX IF NOT EXISTS idx_archive_entries_society_round ON archive_entries(society_id, created_round_id);
 CREATE INDEX IF NOT EXISTS idx_round_summaries_round ON round_summaries(round_id);
+CREATE INDEX IF NOT EXISTS idx_turn_budgets_round ON turn_budgets(round_id);
+CREATE INDEX IF NOT EXISTS idx_turn_budgets_society_round ON turn_budgets(society_id, round_id);
 """
 
 SEED_SOCIETIES = [

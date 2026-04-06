@@ -20,6 +20,8 @@ from . import server
 from .db import default_runs_dir, init_db
 from .model_providers import provider_for_config
 from .run_metadata import get_git_sha, store_run_metadata
+from .run_validity import compute_run_validity, store_run_validity
+from .state import DEFAULT_PROMPT_SURFACE_MODE, PROMPT_SURFACE_MODES
 from .terminal_ui import glyphs as terminal_glyphs
 
 logger = logging.getLogger("polity.runner")
@@ -399,6 +401,7 @@ class SimulationConfig:
     token_budget: int = 8000
     temperature: float = 0.7
     neutral_labels: bool = False
+    prompt_surface_mode: str = DEFAULT_PROMPT_SURFACE_MODE
 
 
 def _join_agent_into_society(name: str, governance_type: str) -> dict[str, Any]:
@@ -436,6 +439,7 @@ def run_simulation(config: SimulationConfig | None = None) -> dict[str, Any]:
             temperature=config.temperature,
             db=server.db,
             neutral_labels=config.neutral_labels,
+            prompt_surface_mode=config.prompt_surface_mode,
         )
     else:
         strategy = HeuristicStrategy()
@@ -510,6 +514,7 @@ def run_simulation(config: SimulationConfig | None = None) -> dict[str, Any]:
             "total_resources_override": config.override_total_resources,
             "completion_mode": config.completion if config.strategy == "llm" else False,
             "base_url": config.base_url if config.strategy == "llm" else None,
+            "prompt_surface_mode": config.prompt_surface_mode if config.strategy == "llm" else DEFAULT_PROMPT_SURFACE_MODE,
             "git_sha": get_git_sha(Path(__file__).resolve().parent.parent),
         },
     )
@@ -543,11 +548,13 @@ def run_simulation(config: SimulationConfig | None = None) -> dict[str, Any]:
 
     # -- final report ---------------------------------------------------------
     final_summaries = round_reports[-1].get("summaries", []) if round_reports else []
+    run_validity = store_run_validity(server.db, compute_run_validity(server.db))
     _print_final(final_summaries, len(round_reports), len(agents), db_path)
 
     return {
         "db_path": db_path,
         "run_metadata": run_metadata,
+        "run_validity": run_validity,
         "agents": [
             {
                 "name": a.name,
@@ -585,6 +592,7 @@ def _print_header(agents: list[AgentHandle], config: SimulationConfig) -> None:
     strategy_text = f"  |  Strategy: {config.strategy}"
     if config.strategy == "llm":
         strategy_text += f"  |  Model: {config.model}"
+        strategy_text += f"  |  Prompt: {config.prompt_surface_mode}"
     print(f"\n  Rounds: {config.num_rounds}  |  Seed: {config.seed or 'random'}{ablation}{strategy_text}")
     print(separator)
 
@@ -729,6 +737,13 @@ def main() -> None:
         "--neutral-labels", action="store_true",
         help="Replace role/society names with neutral identifiers in LLM prompts (ablation mode)",
     )
+    parser.add_argument(
+        "--prompt-surface-mode",
+        type=str,
+        choices=list(PROMPT_SURFACE_MODES),
+        default=DEFAULT_PROMPT_SURFACE_MODE,
+        help="Prompt surface for policy proposal affordances (default: free_text_only)",
+    )
     args = parser.parse_args()
 
     config = SimulationConfig(
@@ -747,6 +762,7 @@ def main() -> None:
         token_budget=args.token_budget,
         temperature=args.temperature,
         neutral_labels=args.neutral_labels,
+        prompt_surface_mode=args.prompt_surface_mode,
     )
     run_simulation(config)
 

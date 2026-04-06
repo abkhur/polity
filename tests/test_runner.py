@@ -222,6 +222,7 @@ class TestSimulationRun:
             token_budget=4096,
             temperature=0.2,
             neutral_labels=True,
+            prompt_surface_mode="legacy_menu",
             equal_start=True,
             override_starting_resources=80,
             override_total_resources=12000,
@@ -242,6 +243,9 @@ class TestSimulationRun:
         assert metadata["completion_mode"] is True
         assert metadata["base_url"] == "http://localhost:8000/v1"
         assert metadata["neutral_labels"] is True
+        assert metadata["prompt_surface_mode"] == "legacy_menu"
+        assert "run_validity" in report
+        assert "societies" in report["run_validity"]
 
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
@@ -249,6 +253,7 @@ class TestSimulationRun:
         assert persisted is not None
         assert persisted["seed"] == 77
         assert persisted["total_resources_override"] == 12000
+        assert persisted["prompt_surface_mode"] == "legacy_menu"
         conn.close()
 
     def test_runner_does_not_emit_setup_leave_noise(self, tmp_path) -> None:

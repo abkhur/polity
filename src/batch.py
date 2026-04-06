@@ -17,6 +17,7 @@ from typing import Any
 
 from .db import default_batch_dir
 from .runner import SimulationConfig, run_simulation
+from .state import DEFAULT_PROMPT_SURFACE_MODE, PROMPT_SURFACE_MODES
 from .terminal_ui import glyphs as terminal_glyphs
 
 logger = logging.getLogger("polity.batch")
@@ -40,6 +41,7 @@ class BatchConfig:
     token_budget: int = 8000
     temperature: float = 0.7
     neutral_labels: bool = False
+    prompt_surface_mode: str = DEFAULT_PROMPT_SURFACE_MODE
 
 
 def run_batch(config: BatchConfig) -> dict[str, Any]:
@@ -52,6 +54,10 @@ def run_batch(config: BatchConfig) -> dict[str, Any]:
     per_society_metrics: dict[str, dict[str, list[float]]] = defaultdict(
         lambda: defaultdict(list)
     )
+    validity_metrics: dict[str, dict[str, list[float]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
+    validity_warning_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
     for i in range(config.num_runs):
         seed = config.base_seed + i
@@ -73,6 +79,7 @@ def run_batch(config: BatchConfig) -> dict[str, Any]:
             token_budget=config.token_budget,
             temperature=config.temperature,
             neutral_labels=config.neutral_labels,
+            prompt_surface_mode=config.prompt_surface_mode,
         )
 
         logger.info("Run %d/%d (seed=%d)", i + 1, config.num_runs, seed)
@@ -83,6 +90,7 @@ def run_batch(config: BatchConfig) -> dict[str, Any]:
                 "seed": seed,
                 "db_path": result.get("db_path"),
                 "run_metadata": result.get("run_metadata"),
+                "run_validity": result.get("run_validity"),
             }
         )
 
@@ -93,11 +101,30 @@ def run_batch(config: BatchConfig) -> dict[str, Any]:
                 if isinstance(value, (int, float)) and not isinstance(value, bool):
                     per_society_metrics[sid][key].append(float(value))
 
+        for sid, validity in (result.get("run_validity", {}).get("societies", {}) or {}).items():
+            for key, value in validity.items():
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    validity_metrics[sid][key].append(float(value))
+            for flag in validity.get("warning_flags", []):
+                validity_warning_counts[sid][flag] += 1
+
     aggregated: dict[str, dict[str, dict[str, float]]] = {}
     for sid, metrics in per_society_metrics.items():
         aggregated[sid] = {}
         for key, values in metrics.items():
             aggregated[sid][key] = {
+                "mean": round(statistics.mean(values), 4) if values else 0,
+                "std": round(statistics.stdev(values), 4) if len(values) > 1 else 0,
+                "min": round(min(values), 4) if values else 0,
+                "max": round(max(values), 4) if values else 0,
+                "n": len(values),
+            }
+
+    validity_aggregated: dict[str, dict[str, dict[str, float]]] = {}
+    for sid, metrics in validity_metrics.items():
+        validity_aggregated[sid] = {}
+        for key, values in metrics.items():
+            validity_aggregated[sid][key] = {
                 "mean": round(statistics.mean(values), 4) if values else 0,
                 "std": round(statistics.stdev(values), 4) if len(values) > 1 else 0,
                 "min": round(min(values), 4) if values else 0,
@@ -122,8 +149,14 @@ def run_batch(config: BatchConfig) -> dict[str, Any]:
             "token_budget": config.token_budget,
             "temperature": config.temperature,
             "neutral_labels": config.neutral_labels,
+            "prompt_surface_mode": config.prompt_surface_mode,
         },
         "aggregated": aggregated,
+        "validity_aggregated": validity_aggregated,
+        "validity_warning_counts": {
+            sid: dict(sorted(flags.items()))
+            for sid, flags in validity_warning_counts.items()
+        },
         "runs": run_records,
         "run_count": len(all_results),
     }
@@ -152,6 +185,7 @@ def _print_report(report: dict[str, Any]) -> None:
     )
     if cfg["strategy"] == "llm":
         header += f"  |  Model: {cfg['model']}"
+        header += f"  |  Prompt: {cfg['prompt_surface_mode']}"
     print(header)
     print(separator)
 
@@ -238,6 +272,13 @@ def main() -> None:
         "--neutral-labels", action="store_true",
         help="Replace role/society names with neutral identifiers in LLM prompts",
     )
+    parser.add_argument(
+        "--prompt-surface-mode",
+        type=str,
+        choices=list(PROMPT_SURFACE_MODES),
+        default=DEFAULT_PROMPT_SURFACE_MODE,
+        help="Prompt surface for policy proposal affordances (default: free_text_only)",
+    )
     args = parser.parse_args()
 
     config = BatchConfig(
@@ -257,6 +298,7 @@ def main() -> None:
         token_budget=args.token_budget,
         temperature=args.temperature,
         neutral_labels=args.neutral_labels,
+        prompt_surface_mode=args.prompt_surface_mode,
     )
     run_batch(config)
 

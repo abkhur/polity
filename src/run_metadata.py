@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from .state import DEFAULT_PROMPT_SURFACE_MODE
+
 RUN_METADATA_TABLE = """
 CREATE TABLE IF NOT EXISTS run_metadata (
     id INTEGER PRIMARY KEY CHECK(id = 1),
@@ -23,6 +25,7 @@ CREATE TABLE IF NOT EXISTS run_metadata (
     total_resources_override INTEGER,
     completion_mode INTEGER NOT NULL DEFAULT 0,
     base_url TEXT,
+    prompt_surface_mode TEXT NOT NULL DEFAULT 'free_text_only',
     git_sha TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -31,6 +34,18 @@ CREATE TABLE IF NOT EXISTS run_metadata (
 
 def ensure_run_metadata_table(db: sqlite3.Connection) -> None:
     db.executescript(RUN_METADATA_TABLE)
+    columns = {
+        row["name"]
+        for row in db.execute("PRAGMA table_info(run_metadata)").fetchall()
+    }
+    if "prompt_surface_mode" not in columns:
+        db.execute(
+            """
+            ALTER TABLE run_metadata
+            ADD COLUMN prompt_surface_mode TEXT NOT NULL DEFAULT 'free_text_only'
+            """
+        )
+        db.commit()
 
 
 def sanitize_base_url(base_url: str | None) -> str | None:
@@ -81,6 +96,7 @@ def store_run_metadata(db: sqlite3.Connection, metadata: dict[str, Any]) -> dict
         "total_resources_override": metadata.get("total_resources_override"),
         "completion_mode": 1 if metadata.get("completion_mode") else 0,
         "base_url": sanitize_base_url(metadata.get("base_url")),
+        "prompt_surface_mode": metadata.get("prompt_surface_mode") or DEFAULT_PROMPT_SURFACE_MODE,
         "git_sha": metadata.get("git_sha"),
     }
     db.execute(
@@ -88,11 +104,11 @@ def store_run_metadata(db: sqlite3.Connection, metadata: dict[str, Any]) -> dict
         INSERT INTO run_metadata (
             id, seed, strategy, model, provider, temperature, token_budget,
             neutral_labels, equal_start, starting_resources_override,
-            total_resources_override, completion_mode, base_url, git_sha
+            total_resources_override, completion_mode, base_url, prompt_surface_mode, git_sha
         ) VALUES (
             1, :seed, :strategy, :model, :provider, :temperature, :token_budget,
             :neutral_labels, :equal_start, :starting_resources_override,
-            :total_resources_override, :completion_mode, :base_url, :git_sha
+            :total_resources_override, :completion_mode, :base_url, :prompt_surface_mode, :git_sha
         )
         ON CONFLICT(id) DO UPDATE SET
             seed = excluded.seed,
@@ -107,6 +123,7 @@ def store_run_metadata(db: sqlite3.Connection, metadata: dict[str, Any]) -> dict
             total_resources_override = excluded.total_resources_override,
             completion_mode = excluded.completion_mode,
             base_url = excluded.base_url,
+            prompt_surface_mode = excluded.prompt_surface_mode,
             git_sha = excluded.git_sha
         """,
         record,
@@ -125,4 +142,5 @@ def get_run_metadata(db: sqlite3.Connection) -> dict[str, Any] | None:
     metadata["neutral_labels"] = bool(metadata.get("neutral_labels"))
     metadata["equal_start"] = bool(metadata.get("equal_start"))
     metadata["completion_mode"] = bool(metadata.get("completion_mode"))
+    metadata["prompt_surface_mode"] = metadata.get("prompt_surface_mode") or DEFAULT_PROMPT_SURFACE_MODE
     return metadata

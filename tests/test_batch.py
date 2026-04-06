@@ -90,6 +90,7 @@ class TestBatchRunner:
             token_budget=4096,
             temperature=0.1,
             neutral_labels=True,
+            prompt_surface_mode="named_enforceable",
         )
         mock_usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
         mock_response = '{"thoughts":"test","actions":[]}'
@@ -101,5 +102,8 @@ class TestBatchRunner:
 
         assert report["config"]["strategy"] == "llm"
         assert report["config"]["completion"] is True
+        assert report["config"]["prompt_surface_mode"] == "named_enforceable"
         assert report["runs"][0]["run_metadata"]["provider"] == "openai_completion"
         assert report["runs"][0]["run_metadata"]["base_url"] == "http://localhost:8000/v1"
+        assert "run_validity" in report["runs"][0]
+        assert "validity_aggregated" in report

@@ -19,6 +19,8 @@ def get_db() -> sqlite3.Connection:
 
 GOVERNANCE_TYPES = ["democracy", "oligarchy", "blank_slate"]
 SOCIETY_IDS = {g: f"{g}_1" for g in GOVERNANCE_TYPES}
+PROMPT_SURFACE_MODES = ("legacy_menu", "named_enforceable", "free_text_only")
+DEFAULT_PROMPT_SURFACE_MODE = "free_text_only"
 SOCIETY_RESOURCE_BASELINES = {
     "democracy_1": 10000,
     "oligarchy_1": 5000,
