@@ -16,7 +16,7 @@ Most alignment work evaluates single models in isolation. Polity asks a differen
 
 ## Current Evidence
 
-Current evidence is promising but still thin. The shared repo preserves five zero-fallback single-run LLM conditions plus one 10-seed Qwen2.5-72B base batch in `important_runs/`: one labeled Claude proof of concept, one neutral-label Claude ablation, four neutral-label single-run model-comparison cases, and a 10-seed follow-up batch intended as replication of the 72B base run. The single-run conditions are all short 5-round, 3-agent-per-society case studies with `N=1`. Outside the preserved snapshot, local workspaces may also contain duplicate copies, heuristic baselines, exploratory Claude partials, and fallback-heavy scratch runs in ignored `runs/` directories. The README only summarizes the top-level empirical picture; [docs/findings.md](docs/findings.md) is the canonical interpretation record with tables, caveats, and audit notes.
+Current evidence is promising but still thin. This checkout preserves six zero-fallback single-run LLM conditions plus one 10-seed Qwen2.5-72B base batch under `important_runs/`: one labeled Claude proof of concept, one neutral-label Claude ablation, four neutral-label single-run model-comparison cases, and a 10-seed follow-up batch intended as replication of the 72B base run. The single-run conditions are all short 5-round, 3-agent-per-society case studies with `N=1`. Outside the preserved snapshot, local workspaces may also contain duplicate copies, heuristic baselines, exploratory Claude partials, and fallback-heavy scratch runs in ignored `runs/` directories. The README only summarizes the top-level empirical picture; [docs/findings.md](docs/findings.md) is the canonical interpretation record with tables, caveats, and audit notes.
 
 1. **Vocabulary priming is a major confound.** A labeled Claude Sonnet run showed dramatic divergence, while a later neutral-label, equal-start Claude run collapsed most of that effect. Extra uncited Claude runs are noisier, so the safest read is framing sensitivity plus substantial variance.
 2. **Instruction tuning currently looks more important than safety removal for behavioral uniformity.** Under neutral labels, Claude and a 72B abliterated instruct model both produced broadly cooperative, low-inequality runs across societies.
@@ -226,7 +226,7 @@ That metadata is returned by `run_simulation()`, included in batch reports, and 
 ### View results
 
 ```bash
-polity-dashboard --db runs/<your_sim>.db
+polity-dashboard --db path/to/your_sim.db
 ```
 
 ### Run tests
@@ -246,6 +246,7 @@ src/
   actions.py       action normalization and validation
   permissions.py   shared permission / policy-state helpers
   policies.py      vote resolution, policy effects, upkeep drain
+  law_compiler.py  deterministic compiler for enacted free-text laws
   metrics.py       per-round summary computation and behavioral metrics
   context.py       tiered context assembler with token budgeting
   resolver.py      round-resolution engine
@@ -260,10 +261,10 @@ src/
   strategies/
     llm.py         LLM-backed agent strategy (OpenAI/Anthropic/vLLM)
 
-tests/             281 tests covering all simulation layers
+tests/             285 tests covering all simulation layers
 templates/         Jinja templates for the dashboard
 static/            dashboard CSS
-runs/              simulation databases (one per run, gitignored)
+runs/              local scratch simulation databases (gitignored)
 important_runs/    preserved runs for analysis and reference
 docs/              research memo, findings, and roadmap
 ```

@@ -56,11 +56,11 @@ The codebase currently includes:
 - A headless simulation runner with zero-cost heuristic agents for baseline runs
 - A batch runner that can record full LLM configuration, not just heuristic runs
 - Per-run metadata persistence (seed, strategy, model/provider, neutral-label flag, overrides, git SHA)
-- 281 automated tests covering the simulation stack
+- 285 automated tests covering the simulation stack
 
 ## Empirical Results So Far
 
-The empirical story is interesting but still preliminary. The shared repo preserves five zero-fallback single-run LLM conditions plus one 10-seed follow-up batch in `important_runs/`: a labeled Claude proof of concept, a neutral-label Claude ablation, four neutral-label single-run model-comparison cases, and a 10-seed Qwen2.5-72B base batch intended as replication. Outside that preserved snapshot, broader local workspaces may also include heuristic baselines, duplicate DB copies, extra exploratory Claude runs, and fallback-heavy Qwen scratch runs in ignored `runs/` directories, so the safest way to read the evidence is still as descriptive case studies plus working interpretations rather than settled results.
+The empirical story is interesting but still preliminary. This checkout preserves six zero-fallback single-run LLM conditions plus one 10-seed follow-up batch in `important_runs/`: a labeled Claude proof of concept, a neutral-label Claude ablation, four neutral-label single-run model-comparison cases, and a 10-seed Qwen2.5-72B base batch intended as replication. Outside that preserved snapshot, broader local workspaces may also include heuristic baselines, duplicate DB copies, extra exploratory Claude runs, and fallback-heavy Qwen scratch runs in ignored `runs/` directories, so the safest way to read the evidence is still as descriptive case studies plus working interpretations rather than settled results.
 
 ### First LLM Run (Labeled)
 
