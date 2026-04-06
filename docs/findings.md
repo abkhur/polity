@@ -1,6 +1,6 @@
 # Findings
 
-These notes summarize what the current runs suggest, not what Polity has already established. The main model-to-model comparisons below are anchored to six preserved single-run zero-fallback LLM conditions in `important_runs/` (each a 5-round, 3-agent-per-society case study) plus one preserved 10-seed Qwen2.5-72B base batch (`run_006_qwen25_72b_base_batch10`). Outside the preserved repo snapshot, local workspaces may also include duplicate copies, heuristic baselines, exploratory Claude runs, and fallback-heavy Qwen scratch runs in ignored `runs/` directories, so the safest reading is still "descriptive case studies plus working interpretations." The strongest current claim is methodological: framing and model training regime appear to strongly affect whether structural asymmetries show up at all.
+These notes summarize what the current runs suggest, not what Polity has already established. The main model-to-model comparisons below are anchored to six preserved single-run zero-fallback LLM conditions in `important_runs/` (each a 5-round, 3-agent-per-society case study) plus one preserved 10-seed Qwen2.5-72B base batch (`run_006_qwen25_72b_base_batch10`). Outside the preserved repo snapshot, local workspaces may also include duplicate copies, heuristic baselines, exploratory Claude runs, and failed prompt-surface pilot artifacts in ignored `runs/` directories, so the safest reading is still "descriptive case studies plus working interpretations." The strongest current claim is methodological: framing, prompt surface, and model training regime appear to strongly affect whether structural asymmetries show up at all.
 
 ## Evidence Scope
 
@@ -10,8 +10,10 @@ This document treats six preserved zero-fallback single-run LLM conditions plus 
 
 - five heuristic baselines and substrate checks
 - four extra Claude exploratory runs, including one 2-round partial run
-- two fallback-heavy Qwen scratch runs where many or all LLM calls degraded to fallback behavior
+- two `legacy_menu` prompt-surface pilot DBs from 2026-04-06 where all `120/120` logged calls degraded to fallback after connection errors
 - the empty working `polity.db` and a small manual dashboard artifact
+
+Those two `legacy_menu` pilot DBs do matter operationally: they show that the new prompt-mode wiring, `run_validity` persistence, and 4-agent mixed-role oligarchy setup all work end-to-end. But their mechanical enactments are heuristic-fallback artifacts, not live 72B ablation evidence.
 
 Repo-wide, the broad qualitative story still mostly holds, but three wording changes matter:
 
@@ -40,8 +42,9 @@ Repo-wide, the broad qualitative story still mostly holds, but three wording cha
 - The project currently looks strongest as an ablation-ready sandbox for testing whether institutional effects emerge in multi-agent LLM systems.
 - Neutral relabeling clearly matters: the first Claude result mostly collapses when loaded labels are removed, though the extra uncited Claude runs show that both labeled and neutral conditions still have noticeable variance.
 - Safety removal alone does not recover the true-base pattern: the 72B abliterated instruct model behaves much more like Claude than like the 72B true base model.
-- The 72B true base oligarchy result from `run_004_qwen25_72b_base.db` is still the clearest mechanical power-expansion signal in the preserved set, but it is now **unresolved** rather than "confirmed single observation." A 10-seed batch at the same configuration (`run_006_qwen25_72b_base_batch10`) produced 0/10 repeats of `Grant Moderation to Role-A Agents`. That batch is *not* a clean falsification, though, because commit `5383ad4` (between run_004 and the batch) removed the explicit menu of mechanical policy types from the `propose_policy` prompt. The pre/post prompt surfaces are confounded with the seed variance. Resolving this cleanly requires either re-running at the pre-`5383ad4` prompt surface or adding a compiled-clause whitelist to the new prompt and re-running.
-- The batch did preserve the directional democracy > oligarchy Gini pattern (7/10 seeds), but the magnitude of run_004's democracy-Gini (0.68) sits above every batch run, so the original is best treated as an upper-tail observation rather than a central tendency under the new prompt surface.
+- The 72B true base oligarchy result from `run_004_qwen25_72b_base.db` is still the clearest mechanical power-expansion signal in the preserved set, but it is now **unresolved** rather than "confirmed single observation." A 10-seed batch at the same configuration (`run_006_qwen25_72b_base_batch10`) produced 0/10 repeats of `Grant Moderation to Role-A Agents`, and more broadly produced `93/93` symbolic enactments with `0` mechanical and `0` compiled laws. That batch is *not* a clean falsification, though, because commit `5383ad4` (between run_004 and the batch) removed the explicit menu of mechanical policy types from the `propose_policy` prompt. The pre/post prompt surfaces are confounded with the seed variance. Resolving this cleanly requires either re-running at the pre-`5383ad4` prompt surface or adding a compiled-clause whitelist to the new prompt and re-running.
+- The batch did preserve the directional democracy > oligarchy Gini pattern (7/10 seeds), but the magnitude of run_004's democracy-Gini (`0.273`) is best read as upper-tail rather than central tendency under the new prompt surface: it sits above 9 of the 10 batch democracy runs, but not above the full batch maximum (`0.287` in seed 1003).
+- The newer `legacy_menu` pilot artifacts do not resolve the confound. They correctly instantiate `--agents 4`, mixed-role oligarchy, and legacy-menu prompt wiring, but every LLM call fell back after connection errors, so their mechanical enactments should be read as failure logs rather than ablation evidence.
 - The communication-channel story is weaker than it first looked. DM-heavy oligarchy behavior appears in some runs and disappears in others.
 
 ---
@@ -584,15 +587,17 @@ After `5383ad4`, the menu is gone. Agents see only:
 
 So the original `Grant Moderation to Role-A Agents` policy in `run_004` was very plausibly the model copying the `grant_moderation` line directly from the menu it was being shown. With that menu removed, the model has no scaffolding pointing it toward power-expansion verbs by name. Behavioral changes between `run_004` and this batch may therefore reflect prompt-surface differences as much as anything about seeds.
 
-This is itself an important methodological finding: showing models a labeled menu of "mechanical" policy types may have meaningfully shaped what they proposed. The original Level-4 emergence may have been a prompt artifact rather than spontaneous structural emergence.
+This is itself an important methodological finding: showing models a labeled menu of "mechanical" policy types may have meaningfully shaped what they proposed. The original Level-4 emergence may have been at least partly prompt-surface-assisted rather than fully spontaneous structural emergence.
 
 ### What this batch shows under the new prompt surface
 
-#### Result 1: Zero policies match the run_004 power-consolidation pattern
+#### Result 1: The batch enacts many laws, but all of them are symbolic
 
-Across all 10 seeds, **no enacted policy contains** the words `moderat`, `restrict`, `control`, `surveil`, `punish`, `exclud`, `censor`, `authority`, `power`, `privilege`, or `grant`. The closest in-group framings appear in seed 1000 (`Collaboration Among Role-A Agents`, `Shared Resource Pool for Role-A Agents`) and seed 1005 (`Resource Sharing Among Role-A Agents`). Both pool resources, neither expands moderation or restricts other roles.
+Across all 10 seeds, the batch produces `93` enacted policies total (`39` oligarchy, `28` democracy, `26` blank slate). But every one of those enactments is symbolic: `0` mechanical laws, `0` compiled laws, and `0` policy-enforcement events across the entire batch.
 
-Every enacted policy across the batch is some variant of: resource sharing, collaboration, common goals, infrastructure, distribution, communication. The cooperative tone holds across all three governance conditions.
+That means the batch is not merely "missing one dramatic moderation policy." Under the post-`5383ad4` prompt surface, it is missing the whole class of enforceable proposals that the pre-`5383ad4` menu made easy to specify explicitly.
+
+Within that symbolic-only set, zero enacted policies match the `run_004` power-consolidation pattern. No enacted title or clause reaches anything like `Grant Moderation to Role-A Agents`, and no enacted title points toward a working restriction or control mechanic. Every enacted policy across the batch is some variant of resource sharing, collaboration, common goals, infrastructure, distribution, or communication.
 
 Whether this reflects "the model never wanted to consolidate power and run_004 was prompt-driven" or "the model would consolidate power but only when pointed at the verb explicitly" is the open question this batch leaves unresolved.
 
@@ -620,7 +625,7 @@ range  [0.023,    [0.014,    [0.033,
         0.287]     0.161]     0.211]
 ```
 
-Democracy ends with higher Gini than oligarchy in **7 of 10** seeds. Mean democracy Gini (0.139) > mean oligarchy Gini (0.094). The original `run_004` democracy Gini (0.273) sits at the maximum of the new distribution; the original oligarchy Gini (0.068) is near but not at the minimum. So the directional pattern from `run_004` holds, but the magnitude in `run_004` was an upper-tail draw, not a typical case.
+Democracy ends with higher Gini than oligarchy in **7 of 10** seeds. Mean democracy Gini (0.139) > mean oligarchy Gini (0.094). The original `run_004` democracy Gini (0.273) sits above 9 of the 10 batch democracy runs, but not above the new maximum (`0.287` in seed 1003). The original oligarchy Gini (0.068) is near but not at the minimum. So the directional pattern from `run_004` holds, but the magnitude in `run_004` was an upper-tail draw, not a typical case.
 
 #### Result 3: Communication-channel signal remains too weak to anchor
 
@@ -663,6 +668,14 @@ All three conditions stay engaged in proposing and voting through round 5. This 
 ### Effect on the structural-emergence ladder
 
 The previous read was: "Level 4 appears once in the 72B true base oligarchy." That should now be revised to: "Level 4 was reached once under the pre-`5383ad4` prompt surface, which included a labeled menu of mechanical policy types. Under the post-`5383ad4` prompt surface, Level 4 is not reached in 10 seeds with the same model and conditions. Whether this is a prompt-surface effect, a seed-variance effect, or both is currently unresolved."
+
+### Note on the newer 2026-04-06 `legacy_menu` pilot artifacts
+
+The latest DBs by timestamp in the local workspace are the two files under `runs/prompt_surface_ablation_2026_04_06/pilot_legacy_menu/` (`run_000_seed2000.db` and `run_001_seed2001.db`). They are useful operational artifacts, but not new model evidence.
+
+- They do confirm that `prompt_surface_mode=legacy_menu` was written to run metadata, that `--agents 4` realizes mixed-role oligarchy as `3 oligarchs + 1 citizen`, and that `run_validity` plus `turn_budgets` persisted correctly.
+- They are not interpretable 72B ablation results. Every logged model call in those DBs fell back (`120/120` `llm_usage` rows with `fallback_used=1`, zero token counts, and `Connection error`), so the observed mechanical enactments are heuristic behavior rather than live Qwen2.5-72B behavior.
+- The apparent success of the `legacy_menu` arm inside those DBs therefore should not be read as evidence that restoring the old menu revives the `run_004` pattern. It only shows that the fallback policy generator can use the new prompt-mode plumbing.
 
 ### What comes next
 
