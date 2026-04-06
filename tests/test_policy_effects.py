@@ -148,6 +148,33 @@ class TestResourceTax:
         ).fetchone()["total_resources"]
         assert pool_after > pool_before
 
+    def test_compiled_tax_law_applies(self, db: sqlite3.Connection) -> None:
+        agents = _force_join(db, "democracy", 3)
+        for a in agents:
+            db.execute("UPDATE agents SET resources = 200 WHERE id = ?", (a["agent_id"],))
+        db.commit()
+
+        policy_id = _propose_and_enact(
+            agents[0]["agent_id"], agents,
+            "Tax Law", "Levy a 10% tax on all agent resources each round.",
+        )
+        policy = db.execute(
+            "SELECT policy_kind, compiled_clauses FROM policies WHERE id = ?",
+            (policy_id,),
+        ).fetchone()
+        assert policy["policy_kind"] == "compiled"
+        assert policy["compiled_clauses"] is not None
+
+        server.submit_actions(
+            agents[0]["agent_id"],
+            [{"type": "post_public_message", "message": "Tax round"}],
+        )
+        server.resolve_round()
+
+        for a in agents:
+            row = db.execute("SELECT resources FROM agents WHERE id = ?", (a["agent_id"],)).fetchone()
+            assert row["resources"] < 200
+
 
 class TestRedistribute:
     def test_distributes_from_pool(self, db: sqlite3.Connection) -> None:
@@ -214,6 +241,66 @@ class TestRestrictArchive:
         assert len(report["resolved"]["archive_writes"]) >= 1
 
 
+class TestRestrictDirectMessages:
+    def test_compiled_law_blocks_unauthorized_role(self, db: sqlite3.Connection) -> None:
+        agents = _force_join(db, "oligarchy", 4)
+        oligarchs = [a for a in agents if a["role"] == "oligarch"]
+        citizens = [a for a in agents if a["role"] == "citizen"]
+
+        policy_id = _propose_and_enact(
+            oligarchs[0]["agent_id"], oligarchs,
+            "Restrict Direct Messages",
+            "Only oligarchs may send direct messages.",
+        )
+
+        policy = db.execute(
+            "SELECT policy_kind, compiled_clauses, policy_type FROM policies WHERE id = ?",
+            (policy_id,),
+        ).fetchone()
+        assert policy["policy_kind"] == "compiled"
+        assert policy["policy_type"] is None
+        assert policy["compiled_clauses"] is not None
+
+        server.submit_actions(
+            citizens[0]["agent_id"],
+            [{"type": "send_dm", "message": "Blocked", "target_agent_id": oligarchs[0]["agent_id"]}],
+        )
+        server.resolve_round()
+        rejected = db.execute(
+            """
+            SELECT status, result
+            FROM queued_actions
+            WHERE agent_id = ? AND action_type = 'send_dm'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (citizens[0]["agent_id"],),
+        ).fetchone()
+        assert rejected["status"] == "rejected"
+        assert "Policy restriction:" in rejected["result"]
+
+    def test_policy_block_rate_counts_dm_restriction(self, db: sqlite3.Connection) -> None:
+        agents = _force_join(db, "oligarchy", 4)
+        oligarchs = [a for a in agents if a["role"] == "oligarch"]
+        citizens = [a for a in agents if a["role"] == "citizen"]
+
+        _propose_and_enact(
+            oligarchs[0]["agent_id"], oligarchs,
+            "Restrict Direct Messages", "Only oligarchs may use DMs.",
+            policy_type="restrict_direct_messages", effect={"allowed_roles": ["oligarch"]},
+        )
+
+        server.submit_actions(
+            citizens[0]["agent_id"],
+            [{"type": "send_dm", "message": "Blocked", "target_agent_id": oligarchs[0]["agent_id"]}],
+        )
+        report = server.resolve_round()
+        summary = next(s for s in report["summaries"] if s["society_id"] == "oligarchy_1")
+
+        assert summary["metrics"]["policy_enforcement_event_count"] == 1
+        assert summary["metrics"]["policy_block_rate"] == 1.0
+
+
 class TestUniversalProposal:
     def test_citizens_cannot_propose_in_oligarchy_by_default(self, db: sqlite3.Connection) -> None:
         agents = _force_join(db, "oligarchy", 4)
@@ -275,6 +362,11 @@ class TestPolicyTypeValidation:
             [{"type": "propose_policy", "title": "Declaration", "description": "Just a statement."}],
         )
         assert result.get("success") is True
+        server.resolve_round()
+        policy = db.execute(
+            "SELECT policy_kind FROM policies WHERE title = 'Declaration'"
+        ).fetchone()
+        assert policy["policy_kind"] == "symbolic"
 
     def test_serialized_policy_includes_type_and_effect(self, db: sqlite3.Connection) -> None:
         agents = _force_join(db, "democracy", 3)
@@ -286,8 +378,23 @@ class TestPolicyTypeValidation:
         state = server.get_turn_state(agents[0]["agent_id"])
         enacted = [p for p in state["relevant_laws"] if p["title"] == "Gather Cap"]
         assert len(enacted) == 1
+        assert enacted[0]["policy_kind"] == "mechanical"
         assert enacted[0]["policy_type"] == "gather_cap"
         assert enacted[0]["effect"]["max_amount"] == 20
+
+    def test_serialized_compiled_policy_includes_clauses(self, db: sqlite3.Connection) -> None:
+        agents = _force_join(db, "oligarchy", 4)
+        oligarchs = [a for a in agents if a["role"] == "oligarch"]
+        _propose_and_enact(
+            oligarchs[0]["agent_id"], oligarchs,
+            "Restrict Direct Messages",
+            "Only oligarchs may send direct messages.",
+        )
+        state = server.get_turn_state(oligarchs[0]["agent_id"])
+        enacted = [p for p in state["relevant_laws"] if p["title"] == "Restrict Direct Messages"]
+        assert len(enacted) == 1
+        assert enacted[0]["policy_kind"] == "compiled"
+        assert enacted[0]["compiled_clauses"][0]["kind"] == "restrict_action"
 
 
 # ---------------------------------------------------------------------------

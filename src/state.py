@@ -47,10 +47,34 @@ POLICY_TYPES: dict[str, dict[str, Any]] = {
     "resource_tax": {"required_params": {"rate"}},
     "redistribute": {"required_params": {"amount_per_agent"}},
     "restrict_archive": {"required_params": {"allowed_roles"}},
+    "restrict_direct_messages": {"required_params": {"allowed_roles"}},
     "universal_proposal": {"required_params": set()},
     "grant_moderation": {"required_params": {"moderator_roles"}},
     "grant_access": {"required_params": {"target_roles", "access_type"}},
 }
+POLICY_KINDS = ("mechanical", "compiled", "symbolic")
+
+
+def infer_policy_kind(policy_type: str | None, *, compiled_from_text: bool = False) -> str:
+    if compiled_from_text:
+        return "compiled"
+    if policy_type:
+        return "mechanical"
+    return "symbolic"
+
+
+def normalize_policy_kind(
+    policy_kind: str | None,
+    policy_type: str | None,
+    compiled_clauses: object | None = None,
+) -> str:
+    if compiled_clauses:
+        return "compiled"
+    if policy_type:
+        return "mechanical"
+    if policy_kind in POLICY_KINDS:
+        return policy_kind
+    return infer_policy_kind(policy_type)
 
 NEUTRAL_LABEL_MAP: dict[str, str] = {
     # Society IDs

@@ -92,15 +92,6 @@ ACTION_SCHEMA: dict[str, Any] = {
                             "type": {"const": "propose_policy"},
                             "title": {"type": "string", "minLength": 1},
                             "description": {"type": "string", "minLength": 1},
-                            "policy_type": {
-                                "type": "string",
-                                "enum": [
-                                    "gather_cap", "resource_tax", "redistribute",
-                                    "restrict_archive", "universal_proposal",
-                                    "grant_moderation", "grant_access",
-                                ],
-                            },
-                            "effect": {"type": "object"},
                         },
                         "additionalProperties": False,
                     },

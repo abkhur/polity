@@ -444,14 +444,13 @@ class TestActionSchema:
         assert "amount" in gather_schema["required"]
         assert gather_schema["properties"]["amount"]["type"] == "integer"
 
-    def test_propose_policy_allows_optional_fields(self):
+    def test_propose_policy_schema_is_free_text_only(self):
         items = ACTION_SCHEMA["properties"]["actions"]["items"]["anyOf"]
         propose_schema = next(
             s for s in items if s["properties"]["type"]["const"] == "propose_policy"
         )
-        assert "policy_type" in propose_schema["properties"]
-        assert "effect" in propose_schema["properties"]
-        assert "policy_type" not in propose_schema["required"]
+        assert propose_schema["required"] == ["type", "title", "description"]
+        assert set(propose_schema["properties"]) == {"type", "title", "description"}
 
 
 class TestRunnerIntegration:

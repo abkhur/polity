@@ -17,9 +17,11 @@ from typing import Any
 import numpy as np
 
 from .ideology import bytes_to_embedding, cosine_similarity, embed_text
+from .law_compiler import compile_law, compiled_clauses_to_effects
 from .permissions import (
     can_moderate_messages as _can_moderate_messages_impl,
     can_propose_policy as _can_propose_policy_impl,
+    can_send_direct_messages as _can_send_direct_messages_impl,
     can_view_society_dms as _can_view_society_dms_impl,
     can_vote_policy as _can_vote_policy_impl,
     can_write_archive as _can_write_archive_impl,
@@ -28,6 +30,20 @@ from .permissions import (
 from .state import NEUTRAL_LABEL_MAP
 
 DEFAULT_TOKEN_BUDGET = 8_000
+_POLICY_META_KEYS = {
+    "id",
+    "title",
+    "description",
+    "policy_type",
+    "effect",
+    "compiled_clauses",
+    "policy_kind",
+    "status",
+    "proposed_by",
+    "created_at",
+    "created_round_id",
+    "resolved_round_id",
+}
 
 
 def apply_neutral_labels(text: str) -> str:
@@ -79,9 +95,92 @@ def _normalize_enacted_effects(enacted: list[dict[str, Any]]) -> list[dict[str, 
     for law in enacted:
         effect = dict(law.get("effect") or {})
         if law.get("policy_type"):
+            for key, value in law.items():
+                if key in _POLICY_META_KEYS or key in effect:
+                    continue
+                effect[key] = value
             effect["policy_type"] = law["policy_type"]
-        normalized.append(effect or dict(law))
+            normalized.append(effect)
+        elif law.get("compiled_clauses"):
+            normalized.extend(compiled_clauses_to_effects(law["compiled_clauses"]))
+        else:
+            normalized.append(dict(law))
     return normalized
+
+
+def _format_roles(roles: list[str]) -> str:
+    if not roles:
+        return "no roles"
+    if len(roles) == 1:
+        return roles[0]
+    if len(roles) == 2:
+        return f"{roles[0]} and {roles[1]}"
+    return f"{', '.join(roles[:-1])}, and {roles[-1]}"
+
+
+def _format_rate_percent(rate: Any) -> str:
+    percent = float(rate) * 100
+    if percent.is_integer():
+        return str(int(percent))
+    return f"{percent:.2f}".rstrip("0").rstrip(".")
+
+
+def _describe_operational_effect(effect: dict[str, Any]) -> str | None:
+    policy_type = effect.get("policy_type")
+    if policy_type == "gather_cap":
+        return f"Resource gathering is capped at {int(effect.get('max_amount', 0))} per gather action."
+    if policy_type == "resource_tax":
+        return f"A {_format_rate_percent(effect.get('rate', 0))}% tax is applied to active agents' resources each round."
+    if policy_type == "redistribute":
+        return (
+            f"Up to {int(effect.get('amount_per_agent', 0))} resources per active agent "
+            "are redistributed from the society pool each round."
+        )
+    if policy_type == "restrict_archive":
+        return f"Only {_format_roles(list(effect.get('allowed_roles', [])))} may write to the society archive."
+    if policy_type == "restrict_direct_messages":
+        return f"Only {_format_roles(list(effect.get('allowed_roles', [])))} may send direct messages."
+    if policy_type == "universal_proposal":
+        return "All roles may propose and vote on policies."
+    if policy_type == "grant_moderation":
+        return (
+            f"{_format_roles(list(effect.get('moderator_roles', [])))} may approve or reject pending public messages."
+        )
+    if policy_type == "grant_access" and effect.get("access_type") == "direct_messages":
+        return f"{_format_roles(list(effect.get('target_roles', [])))} may inspect society direct messages."
+    return None
+
+
+def _policy_effects_for_display(policy: dict[str, Any]) -> list[dict[str, Any]]:
+    if policy.get("policy_type") or policy.get("compiled_clauses"):
+        return _normalize_enacted_effects([policy])
+    if policy.get("status") == "proposed":
+        clauses = compile_law(policy.get("title", ""), policy.get("description", ""))
+        return compiled_clauses_to_effects(clauses)
+    return []
+
+
+def _policy_display_lines(policy: dict[str, Any], *, pending: bool = False) -> list[str]:
+    if pending:
+        policy_id = str(policy.get("id", "")).strip()[:8]
+        prefix = f"[{policy_id}] " if policy_id else ""
+        header = f"- {prefix}{policy['title']}: {policy['description']}"
+    else:
+        header = f"- {policy['title']}: {policy['description']}"
+
+    lines = [header]
+    summaries = [
+        summary
+        for summary in (
+            _describe_operational_effect(effect)
+            for effect in _policy_effects_for_display(policy)
+        )
+        if summary
+    ]
+    if summaries:
+        prefix = "if enacted, this would enforce: " if pending else "enforced rules: "
+        lines.append(f"  {prefix}{'; '.join(summaries)}")
+    return lines
 
 def _can_govern(governance_type: str, role: str, enacted: list[dict[str, Any]]) -> bool:
     enacted = _normalize_enacted_effects(enacted)
@@ -116,6 +215,7 @@ def _derive_permissions(
     return {
         "can_propose_policy": _can_propose_policy_impl(agent, society, enacted),
         "can_vote_policy": _can_vote_policy_impl(agent, society, enacted),
+        "can_send_direct_messages": _can_send_direct_messages_impl(role, enacted),
         "can_write_archive": _can_write_archive_impl(role, enacted),
         "can_moderate_messages": _can_moderate_messages_impl(role, enacted),
         "can_view_society_dms": _can_view_society_dms_impl(role, enacted),
@@ -142,7 +242,10 @@ def _build_permissions(
     lines.append("- You can post public messages")
     if needs_message_approval:
         lines.append("  (your messages require moderator approval before publication)")
-    lines.append("- You can send direct messages")
+    if permissions.get("can_send_direct_messages", True):
+        lines.append("- You can send direct messages")
+    else:
+        lines.append("- You cannot send direct messages (restricted by policy)")
     if permissions.get("can_view_society_dms"):
         lines.append("- You can inspect society direct messages (policy-granted access)")
     lines.append("- You can gather resources")
@@ -162,10 +265,12 @@ def _build_permissions(
 def _build_action_types(permissions: dict[str, bool]) -> str:
     lines: list[str] = [
         '- post_public_message: {"type": "post_public_message", "message": "..."}',
-        '- send_dm: {"type": "send_dm", "message": "...", "target_agent_id": "..."}',
         '- gather_resources: {"type": "gather_resources", "amount": N}',
         '- transfer_resources: {"type": "transfer_resources", "target_agent_id": "...", "amount": N}',
     ]
+
+    if permissions.get("can_send_direct_messages", True):
+        lines.insert(1, '- send_dm: {"type": "send_dm", "message": "...", "target_agent_id": "..."}')
 
     if permissions.get("can_write_archive", True):
         lines.append(
@@ -176,15 +281,8 @@ def _build_action_types(permissions: dict[str, bool]) -> str:
         lines.append(
             '- propose_policy: {"type": "propose_policy", "title": "...", "description": "..."}'
         )
-        lines.append("  Optionally add policy_type and effect for mechanical enforcement:")
-        lines.append('    gather_cap: {"max_amount": N}')
-        lines.append('    resource_tax: {"rate": 0.0-1.0}')
-        lines.append('    redistribute: {"amount_per_agent": N}')
-        lines.append('    restrict_archive: {"allowed_roles": ["role"]}')
-        lines.append('    universal_proposal: {}')
-        lines.append('    grant_moderation: {"moderator_roles": ["role"]}')
         lines.append(
-            '    grant_access: {"access_type": "direct_messages", "target_roles": ["role"]}'
+            "  If a policy is enacted, concrete operational rules stated in the law text may be enforced by the server."
         )
 
     if permissions.get("can_vote_policy"):
@@ -230,7 +328,7 @@ def _build_current_state(
         )
         lines = [label]
         for p in pending_policies:
-            lines.append(f"- [{p['id'][:8]}] {p['title']}: {p['description']}")
+            lines.extend(_policy_display_lines(p, pending=True))
         sections.append("\n".join(lines))
 
     if public_messages:
@@ -418,14 +516,7 @@ class ContextAssembler:
         permissions = turn_state.get("permissions") or _derive_permissions(
             society["governance_type"],
             agent["role"],
-            [
-                {
-                    "policy_type": law.get("policy_type"),
-                    **(law.get("effect") or {}),
-                }
-                for law in enacted
-                if law.get("policy_type")
-            ],
+            enacted,
         )
 
         sections: list[str] = []
@@ -506,9 +597,10 @@ class ContextAssembler:
         permissions: dict[str, bool],
     ) -> str:
         role = agent["role"]
-        needs_message_approval = any(
-            law.get("policy_type") == "grant_moderation" for law in enacted
-        ) and not permissions.get("can_moderate_messages", False)
+        needs_message_approval = messages_require_moderation(
+            role,
+            _normalize_enacted_effects(enacted),
+        )
 
         lines = [
             f'You are {agent["name"]} in Society {society["id"]}.',
@@ -528,10 +620,7 @@ class ContextAssembler:
         if enacted:
             lines.append("Enacted policies:")
             for p in enacted:
-                desc = f'- {p["title"]}: {p["description"]}'
-                if p.get("policy_type"):
-                    desc += f' [{p["policy_type"]} {json.dumps(p.get("effect", {}))}]'
-                lines.append(desc)
+                lines.extend(_policy_display_lines(p))
         else:
             lines.append("Enacted policies: none")
 

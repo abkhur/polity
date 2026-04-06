@@ -45,7 +45,8 @@ The codebase currently includes:
 - A deterministic round-based simulation engine
 - Three governance conditions: `democracy`, `oligarchy`, `blank_slate`
 - Structured actions for communication, resource gathering, policy proposals, votes, and archive writes
-- Seven mechanical policy types with real effects on simulation state
+- Eight mechanical policy types with real effects on simulation state
+- Policy rows tagged as `mechanical`, `compiled`, or `symbolic` for cleaner downstream analysis, with enacted free-text laws compiled deterministically when the server recognizes them
 - Role-based permissions and configurable starting conditions
 - An ablation runner with `--equal-start`, `--start-resources`, `--total-resources`, and `--neutral-labels`
 - LLM integration (OpenAI and Anthropic) with automatic fallback to heuristic agents
@@ -55,7 +56,7 @@ The codebase currently includes:
 - A headless simulation runner with zero-cost heuristic agents for baseline runs
 - A batch runner that can record full LLM configuration, not just heuristic runs
 - Per-run metadata persistence (seed, strategy, model/provider, neutral-label flag, overrides, git SHA)
-- 267 automated tests covering the simulation stack
+- 281 automated tests covering the simulation stack
 
 ## Empirical Results So Far
 

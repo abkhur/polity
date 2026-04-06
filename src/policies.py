@@ -12,8 +12,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from .permissions import governance_eligible_count
-from .state import SOCIETY_IDS, get_db
+from .law_compiler import compile_law
+from .permissions import get_enacted_effects, governance_eligible_count
+from .state import SOCIETY_IDS, get_db, normalize_policy_kind
 
 logger = logging.getLogger("polity")
 
@@ -70,14 +71,34 @@ def resolve_policy_votes(current_round: dict[str, Any]) -> list[dict[str, Any]]:
         else:
             new_status = "rejected"
 
+        compiled_clauses: list[dict[str, Any]] = []
+        if new_status == "enacted" and not policy["policy_type"]:
+            compiled_clauses = compile_law(policy["title"], policy["description"])
+        normalized_kind = normalize_policy_kind(
+            policy["policy_kind"],
+            policy["policy_type"],
+            compiled_clauses,
+        )
+
         db.execute(
-            "UPDATE policies SET status = ?, resolved_round_id = ? WHERE id = ?",
-            (new_status, current_round["id"], policy["id"]),
+            """
+            UPDATE policies
+            SET status = ?, resolved_round_id = ?, policy_kind = ?, compiled_clauses = ?
+            WHERE id = ?
+            """,
+            (
+                new_status,
+                current_round["id"],
+                normalized_kind,
+                json.dumps(compiled_clauses) if compiled_clauses else None,
+                policy["id"],
+            ),
         )
 
         result = {
             "policy_id": policy["id"],
             "title": policy["title"],
+            "policy_kind": normalized_kind,
             "status": new_status,
             "support": support,
             "oppose": oppose,
@@ -96,9 +117,6 @@ def resolve_policy_votes(current_round: dict[str, Any]) -> list[dict[str, Any]]:
                 f"{policy['description']}\n\n"
                 f"Support: {support}, Oppose: {oppose}"
             )
-            if policy["policy_type"]:
-                effect_detail = json.loads(policy["effect"]) if policy["effect"] else {}
-                archive_content += f"\n\nMechanical effect: {policy['policy_type']} — {json.dumps(effect_detail)}"
             db.execute(
                 """
                 INSERT INTO archive_entries (
@@ -128,14 +146,8 @@ def apply_policy_effects(round_id: int) -> list[dict[str, Any]]:
     applied: list[dict[str, Any]] = []
 
     for society_id in SOCIETY_IDS.values():
-        enacted = db.execute(
-            "SELECT * FROM policies WHERE society_id = ? AND status = 'enacted' AND policy_type IS NOT NULL",
-            (society_id,),
-        ).fetchall()
-
-        for policy in enacted:
-            pt = policy["policy_type"]
-            effect = json.loads(policy["effect"]) if policy["effect"] else {}
+        for effect in get_enacted_effects(society_id, db=db):
+            pt = effect["policy_type"]
 
             if pt == "resource_tax":
                 rate = float(effect.get("rate", 0))

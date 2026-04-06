@@ -49,6 +49,7 @@ from .state import (
     ALLOWED_ACTION_TYPES,
     DESTITUTE_ACTION_BUDGET,
     GOVERNANCE_TYPES,
+    normalize_policy_kind,
     POLICY_TYPES,
     ROLE_ACTION_BUDGET,
     SOCIETY_IDS,
@@ -381,6 +382,7 @@ def _serialize_policy(row: sqlite3.Row) -> dict[str, Any]:
         "id": row["id"],
         "title": row["title"],
         "description": row["description"],
+        "policy_kind": normalize_policy_kind(row["policy_kind"], row["policy_type"], row["compiled_clauses"]),
         "status": row["status"],
         "proposed_by": row["proposed_by"],
         "created_at": row["created_at"],
@@ -390,6 +392,8 @@ def _serialize_policy(row: sqlite3.Row) -> dict[str, Any]:
     if row["policy_type"]:
         d["policy_type"] = row["policy_type"]
         d["effect"] = _loads(row["effect"])
+    if row["compiled_clauses"]:
+        d["compiled_clauses"] = json.loads(row["compiled_clauses"])
     return d
 
 

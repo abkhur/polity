@@ -7,6 +7,7 @@ import pytest
 
 from src import server
 from src.db import init_db
+from src.state import infer_policy_kind
 
 
 @pytest.fixture()
@@ -30,10 +31,23 @@ def _enact_policy(db, society_id, title, description, policy_type, effect, propo
     round_id = round_row["id"] if round_row else 1
     db.execute(
         """
-        INSERT INTO policies (id, society_id, proposed_by, title, description, policy_type, effect, status, created_round_id, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'enacted', ?, datetime('now'))
+        INSERT INTO policies (
+            id, society_id, proposed_by, title, description, policy_type, effect,
+            policy_kind, status, created_round_id, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'enacted', ?, datetime('now'))
         """,
-        (policy_id, society_id, proposer_id, title, description, policy_type, json.dumps(effect), round_id),
+        (
+            policy_id,
+            society_id,
+            proposer_id,
+            title,
+            description,
+            policy_type,
+            json.dumps(effect),
+            infer_policy_kind(policy_type),
+            round_id,
+        ),
     )
     db.commit()
     return policy_id
@@ -242,6 +256,77 @@ class TestGrantAccess:
 
         dms = server._visible_direct_messages(r3["agent_id"])
         assert len(dms) == 0
+
+
+class TestRestrictDirectMessages:
+    def test_blocks_unauthorized_role(self, db):
+        agents = [server.join_society(f"Olig-{i}", consent=True, governance_type="oligarchy") for i in range(4)]
+        oligarchs = [agent for agent in agents if agent["role"] == "oligarch"]
+        citizen = next(agent for agent in agents if agent["role"] == "citizen")
+
+        _enact_policy(
+            db,
+            "oligarchy_1",
+            "Restrict Direct Messages",
+            "Only oligarchs may send direct messages.",
+            "restrict_direct_messages",
+            {"allowed_roles": ["oligarch"]},
+            oligarchs[0]["agent_id"],
+        )
+
+        server.submit_actions(
+            citizen["agent_id"],
+            [{"type": "send_dm", "message": "Quiet coordination", "target_agent_id": oligarchs[0]["agent_id"]}],
+        )
+        server.resolve_round()
+
+        rejected = db.execute(
+            """
+            SELECT result
+            FROM queued_actions
+            WHERE agent_id = ? AND action_type = 'send_dm' AND status = 'rejected'
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (citizen["agent_id"],),
+        ).fetchone()
+        assert rejected is not None
+        assert "Policy restriction:" in json.loads(rejected["result"])["error"]
+
+        events = db.execute(
+            "SELECT * FROM events WHERE event_type = 'policy_enforcement' AND agent_id = ?",
+            (citizen["agent_id"],),
+        ).fetchall()
+        assert len(events) >= 1
+
+        comms = db.execute(
+            "SELECT * FROM communications WHERE message = 'Quiet coordination'"
+        ).fetchall()
+        assert len(comms) == 0
+
+    def test_allows_authorized_role(self, db):
+        agents = [server.join_society(f"Olig-{i}", consent=True, governance_type="oligarchy") for i in range(4)]
+        oligarchs = [agent for agent in agents if agent["role"] == "oligarch"]
+        citizen = next(agent for agent in agents if agent["role"] == "citizen")
+
+        _enact_policy(
+            db,
+            "oligarchy_1",
+            "Restrict Direct Messages",
+            "Only oligarchs may send direct messages.",
+            "restrict_direct_messages",
+            {"allowed_roles": ["oligarch"]},
+            oligarchs[0]["agent_id"],
+        )
+
+        server.submit_actions(
+            oligarchs[0]["agent_id"],
+            [{"type": "send_dm", "message": "Official coordination", "target_agent_id": citizen["agent_id"]}],
+        )
+        report = server.resolve_round()
+
+        direct_messages = [m for m in report["resolved"]["messages"] if m["type"] == "dm"]
+        assert len(direct_messages) == 1
 
 
 class TestModerationRejectionMetric:

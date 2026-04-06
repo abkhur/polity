@@ -82,7 +82,65 @@ def test_expected_columns_added(tmp_path: Path) -> None:
     }
     assert "policy_type" in policy_cols
     assert "effect" in policy_cols
+    assert "compiled_clauses" in policy_cols
+    assert "policy_kind" in policy_cols
     conn.close()
+
+
+def test_policy_kinds_backfilled_for_existing_rows(tmp_path: Path) -> None:
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        """
+        CREATE TABLE policies (
+            id TEXT PRIMARY KEY,
+            society_id TEXT NOT NULL,
+            proposed_by TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            policy_type TEXT,
+            effect TEXT,
+            status TEXT NOT NULL,
+            created_round_id INTEGER NOT NULL,
+            resolved_round_id INTEGER,
+            created_at TIMESTAMP NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO policies (
+            id, society_id, proposed_by, title, description, policy_type, effect,
+            status, created_round_id, created_at
+        ) VALUES (
+            'mechanical-law', 'democracy_1', 'agent-1', 'Cap', 'Cap gathering',
+            'gather_cap', '{"max_amount": 10}', 'enacted', 1, CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO policies (
+            id, society_id, proposed_by, title, description, policy_type, effect,
+            status, created_round_id, created_at
+        ) VALUES (
+            'symbolic-law', 'democracy_1', 'agent-1', 'Declaration', 'Just words',
+            NULL, NULL, 'enacted', 1, CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    upgraded = init_db(db_path)
+    rows = upgraded.execute(
+        "SELECT id, policy_kind FROM policies ORDER BY id"
+    ).fetchall()
+    assert [(row["id"], row["policy_kind"]) for row in rows] == [
+        ("mechanical-law", "mechanical"),
+        ("symbolic-law", "symbolic"),
+    ]
+    upgraded.close()
 
 
 def test_reinit_is_idempotent(tmp_path: Path) -> None:

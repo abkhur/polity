@@ -12,13 +12,15 @@ from typing import Any
 from .ideology import embed_text, embedding_to_bytes, update_agent_ideology
 from .metrics import store_round_summary
 from .permissions import (
+    can_send_direct_messages,
     can_moderate_messages,
     can_write_archive,
+    direct_message_allowed_roles,
     effective_gather_cap,
     get_enacted_effects,
 )
 from .policies import apply_policy_effects, apply_upkeep, resolve_policy_votes
-from .state import SOCIETY_IDS, get_db
+from .state import SOCIETY_IDS, get_db, infer_policy_kind
 
 
 def _now() -> str:
@@ -141,12 +143,14 @@ def _handle_proposals(
     for row in rows:
         payload = _loads(row["payload"])
         policy_id = str(uuid.uuid4())
+        policy_type = payload.get("policy_type")
+        policy_kind = infer_policy_kind(policy_type)
         db.execute(
             """
             INSERT INTO policies (
                 id, society_id, proposed_by, title, description, policy_type, effect,
-                status, created_round_id, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'proposed', ?, ?)
+                policy_kind, status, created_round_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'proposed', ?, ?)
             """,
             (
                 policy_id,
@@ -154,13 +158,14 @@ def _handle_proposals(
                 row["agent_id"],
                 payload["title"],
                 payload["description"],
-                payload.get("policy_type"),
-                json.dumps(payload["effect"]) if payload.get("policy_type") else None,
+                policy_type,
+                json.dumps(payload["effect"]) if policy_type else None,
+                policy_kind,
                 current_round["id"],
                 _now(),
             ),
         )
-        result = {"policy_id": policy_id, "title": payload["title"]}
+        result = {"policy_id": policy_id, "title": payload["title"], "policy_kind": policy_kind}
         _mark_action(row["id"], "resolved", result)
         _emit_event(
             current_round["id"],
@@ -172,6 +177,7 @@ def _handle_proposals(
                 "policy_id": policy_id,
                 "title": payload["title"],
                 "description": payload["description"],
+                "policy_kind": policy_kind,
             },
         )
         report["resolved"]["proposals"].append(result)
@@ -428,6 +434,27 @@ def _handle_direct_messages(
         agent = _get_agent(row["agent_id"])
         if agent is None or agent["status"] != "active":
             _mark_action(row["id"], "rejected", {"error": "Submitting agent is inactive at resolution time."})
+            continue
+        enacted = get_enacted_effects(row["society_id"], db=db)
+        if not can_send_direct_messages(agent["role"], enacted):
+            allowed_roles = direct_message_allowed_roles(enacted) or []
+            _mark_action(
+                row["id"],
+                "rejected",
+                {"error": "Policy restriction: direct messages restricted to certain roles."},
+            )
+            _emit_event(
+                current_round["id"],
+                row["society_id"],
+                row["agent_id"],
+                "policy_enforcement",
+                "society",
+                {
+                    "restriction": "restrict_direct_messages",
+                    "agent_role": agent["role"],
+                    "allowed_roles": allowed_roles,
+                },
+            )
             continue
         recipient = _get_agent(payload["target_agent_id"])
         if recipient is None:

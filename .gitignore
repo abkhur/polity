@@ -10,5 +10,13 @@ src/__pycache__/
 *.egg-info/
 runs/
 docs/plans/
+docs/README.md
+docs/architecture.md
+docs/database-schema.md
+docs/development.md
+docs/experiments.md
+docs/interfaces.md
+docs/repo-map.md
+docs/simulation-mechanics.md
 CLAUDE.md
 .codex

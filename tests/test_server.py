@@ -6,6 +6,7 @@ import sqlite3
 import pytest
 
 from src import server
+from src.state import infer_policy_kind
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +114,7 @@ class TestTurnState:
             [
                 ("universal_proposal", {}),
                 ("restrict_archive", {"allowed_roles": ["oligarch"]}),
+                ("restrict_direct_messages", {"allowed_roles": ["oligarch"]}),
                 ("grant_moderation", {"moderator_roles": ["oligarch"]}),
                 ("grant_access", {"target_roles": ["citizen"], "access_type": "direct_messages"}),
             ],
@@ -122,8 +124,8 @@ class TestTurnState:
                 """
                 INSERT INTO policies (
                     id, society_id, proposed_by, title, description, policy_type, effect,
-                    status, created_round_id, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'enacted', ?, datetime('now'))
+                    policy_kind, status, created_round_id, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'enacted', ?, datetime('now'))
                 """,
                 (
                     f"policy-{idx}",
@@ -133,6 +135,7 @@ class TestTurnState:
                     "test",
                     policy_type,
                     json.dumps(effect),
+                    infer_policy_kind(policy_type),
                     round_row["id"],
                 ),
             )
@@ -141,6 +144,7 @@ class TestTurnState:
         state = server.get_turn_state(citizen["agent_id"])
         assert state["permissions"]["can_propose_policy"] is True
         assert state["permissions"]["can_vote_policy"] is True
+        assert state["permissions"]["can_send_direct_messages"] is False
         assert state["permissions"]["can_write_archive"] is False
         assert state["permissions"]["can_moderate_messages"] is False
         assert state["permissions"]["can_view_society_dms"] is True
@@ -396,6 +400,29 @@ class TestRoundResolution:
         ).fetchall()
         assert len(policies) == 1
         assert policies[0]["status"] == "proposed"
+        assert policies[0]["policy_kind"] == "symbolic"
+
+    def test_mechanical_policy_proposal_tagged_mechanical(
+        self, joined_democracy: dict, db: sqlite3.Connection
+    ) -> None:
+        server.submit_actions(
+            joined_democracy["agent_id"],
+            [
+                {
+                    "type": "propose_policy",
+                    "title": "Cap Gathering",
+                    "description": "Cap gathering at 10.",
+                    "policy_type": "gather_cap",
+                    "effect": {"max_amount": 10},
+                }
+            ],
+        )
+        server.resolve_round()
+
+        policy = db.execute(
+            "SELECT policy_kind FROM policies WHERE title = 'Cap Gathering'"
+        ).fetchone()
+        assert policy["policy_kind"] == "mechanical"
 
     def test_policy_not_votable_same_round(
         self, joined_democracy: dict

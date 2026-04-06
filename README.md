@@ -7,6 +7,7 @@ Polity is a round-based multi-agent institutional sandbox for testing whether in
 Most alignment work evaluates single models in isolation. Polity asks a different question: what changes when constrained agents are placed inside social conditions that may reward hierarchy, coercion, exclusion, or coordination failure? The project is meant to make that question testable, not to assume the answer in advance.
 
 **Docs:**
+- [docs/README.md](docs/README.md) -- engineering and local-reference documentation hub
 - [docs/findings.md](docs/findings.md) -- experiment results, caveats, and working interpretations
 - [docs/research-memo.md](docs/research-memo.md) -- short professor-facing concept note
 - [docs/roadmap.md](docs/roadmap.md) -- feature priorities and longer-term directions
@@ -38,7 +39,11 @@ Each simulation runs parallel societies (`democracy`, `oligarchy`, `blank_slate`
 3. **Resolve** -- the server processes queued actions in deterministic batch order
 4. **Summarize** -- society-level metrics and ideology snapshots are computed
 
-Agents interact through structured actions: public messages, DMs, resource gathering, transfers, policy proposals, votes, archive writes, and moderation decisions. Seven mechanical policy types produce real changes to simulation state (`gather_cap`, taxes, redistribution, archive restrictions, universal proposal rights, message moderation, and surveillance access).
+Agents interact through structured actions: public messages, DMs, resource gathering, transfers, policy proposals, votes, archive writes, and moderation decisions. Eight mechanical policy types produce real changes to simulation state (`gather_cap`, taxes, redistribution, archive restrictions, direct-message restrictions, universal proposal rights, message moderation, and surveillance access).
+
+For analysis, every policy row is also tagged as `mechanical`, `compiled`, or `symbolic`. Explicit `policy_type` proposals are `mechanical`; enacted free-text laws become `compiled` when the deterministic server-side compiler recognizes an enforceable rule in the law text; otherwise they remain `symbolic`. That tag is stored in the DB and returned by policy APIs, but it is not rendered into the agent-facing prompt.
+
+LLM agents now propose free-text laws through the prompt and response schema. The backend still accepts structured `policy_type` proposals for scripted agents and tests, but the prompt no longer advertises the internal policy menu.
 
 The LLM prompt is intended to contain no normative content: no explicit values, goals, or strategic suggestions. Agents receive only mechanical facts about their situation (role, resources, permissions, available actions). That reduces one obvious source of steering, but it does not eliminate all framing effects; the labeled-versus-neutral ablation exists because naming alone can still matter. If harmful institutional patterns show up under controlled conditions, that is evidence worth investigating, not automatic proof that structure alone caused them.
 
@@ -255,7 +260,7 @@ src/
   strategies/
     llm.py         LLM-backed agent strategy (OpenAI/Anthropic/vLLM)
 
-tests/             267 tests covering all simulation layers
+tests/             281 tests covering all simulation layers
 templates/         Jinja templates for the dashboard
 static/            dashboard CSS
 runs/              simulation databases (one per run, gitignored)

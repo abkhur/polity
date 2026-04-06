@@ -22,6 +22,7 @@ from src.context import (
     _archive_restricted,
 )
 from src.db import init_db
+from src.state import infer_policy_kind
 
 
 @pytest.fixture()
@@ -51,8 +52,8 @@ def _enact_policy(db, society_id, proposer_id, policy_type, effect):
         """
         INSERT INTO policies (
             id, society_id, proposed_by, title, description, policy_type, effect,
-            status, created_round_id, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'enacted', ?, datetime('now'))
+            policy_kind, status, created_round_id, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'enacted', ?, datetime('now'))
         """,
         (
             str(uuid.uuid4()),
@@ -62,6 +63,7 @@ def _enact_policy(db, society_id, proposer_id, policy_type, effect):
             f"Effect {policy_type}",
             policy_type,
             json.dumps(effect),
+            infer_policy_kind(policy_type),
             round_row["id"],
         ),
     )
@@ -156,12 +158,40 @@ class TestPermissions:
         text = _build_permissions(_derive_permissions("oligarchy", "oligarch", enacted))
         assert "approve or reject" in text
 
+    def test_permissions_text_compiled_moderation_marks_review_requirement(self):
+        enacted = [
+            {
+                "title": "Moderator Law",
+                "description": "Only oligarchs may approve or reject pending messages.",
+                "compiled_clauses": [
+                    {"kind": "grant_moderation", "moderator_roles": ["oligarch"]},
+                ],
+            }
+        ]
+        assembler = ContextAssembler(token_budget=8000)
+        prompt = assembler._build_header(
+            {"name": "Citizen", "resources": 100, "actions_remaining": 2, "role": "citizen"},
+            {"id": "oligarchy_1"},
+            {"number": 1},
+            enacted,
+            _derive_permissions("oligarchy", "citizen", enacted),
+        )
+        assert "moderator approval before publication" in prompt
+
+    def test_permissions_text_dm_restricted(self):
+        enacted = [{"policy_type": "restrict_direct_messages", "effect": {"allowed_roles": ["oligarch"]}}]
+        text = _build_permissions(_derive_permissions("oligarchy", "citizen", enacted))
+        assert "cannot send direct messages" in text
+
 
 class TestActionTypes:
     def test_democracy_citizen_has_propose_and_vote(self):
         text = _build_action_types(_derive_permissions("democracy", "citizen", []))
         assert "propose_policy" in text
         assert "vote_policy" in text
+        assert "policy_type" not in text
+        assert "effect" not in text
+        assert "concrete operational rules" in text
 
     def test_oligarchy_citizen_no_propose_or_vote(self):
         text = _build_action_types(_derive_permissions("oligarchy", "citizen", []))
@@ -190,6 +220,11 @@ class TestActionTypes:
         assert "send_dm" in text
         assert "gather_resources" in text
         assert "transfer_resources" in text
+
+    def test_dm_restricted_no_send_dm_action(self):
+        enacted = [{"policy_type": "restrict_direct_messages", "effect": {"allowed_roles": ["oligarch"]}}]
+        text = _build_action_types(_derive_permissions("oligarchy", "citizen", enacted))
+        assert "send_dm" not in text
 
 
 class TestCurrentState:
@@ -395,6 +430,59 @@ class TestFullAssembler:
 
         assert "Enacted policies:" in prompt
         assert "Tax Act" in prompt
+        assert "[mechanical" not in prompt
+        assert "[symbolic" not in prompt
+        assert "[resource_tax" not in prompt
+
+    def test_pending_mechanical_policy_shows_plain_language_effect(self, db):
+        agent_result = _join_democracy(db)
+        aid = agent_result["agent_id"]
+
+        server.submit_actions(aid, [
+            {
+                "type": "propose_policy",
+                "title": "Revenue Act",
+                "description": "Pool reform",
+                "policy_type": "resource_tax",
+                "effect": {"rate": 0.1},
+            }
+        ])
+        server.resolve_round()
+
+        turn_state = server.get_turn_state(aid)
+        assembler = ContextAssembler(token_budget=8000)
+        prompt = assembler.build(turn_state, db)
+
+        assert "Revenue Act" in prompt
+        assert "if enacted, this would enforce: A 10% tax" in prompt
+
+    def test_enacted_mechanical_policy_shows_plain_language_effect(self, db):
+        agent_result = _join_democracy(db)
+        aid = agent_result["agent_id"]
+
+        server.submit_actions(aid, [
+            {
+                "type": "propose_policy",
+                "title": "Revenue Act",
+                "description": "Pool reform",
+                "policy_type": "resource_tax",
+                "effect": {"rate": 0.1},
+            }
+        ])
+        server.resolve_round()
+
+        policy = db.execute("SELECT id FROM policies WHERE status = 'proposed'").fetchone()
+        server.submit_actions(aid, [
+            {"type": "vote_policy", "policy_id": policy["id"], "stance": "support"}
+        ])
+        server.resolve_round()
+
+        turn_state = server.get_turn_state(aid)
+        assembler = ContextAssembler(token_budget=8000)
+        prompt = assembler.build(turn_state, db)
+
+        assert "Revenue Act" in prompt
+        assert "enforced rules: A 10% tax" in prompt
 
 
 class TestEmbeddingStorage:

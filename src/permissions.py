@@ -6,6 +6,7 @@ import json
 import sqlite3
 from typing import Any
 
+from .law_compiler import compiled_clauses_to_effects
 from .state import get_db
 
 
@@ -19,18 +20,24 @@ def get_enacted_effects(
 ) -> list[dict[str, Any]]:
     rows = _db(db).execute(
         """
-        SELECT policy_type, effect
+        SELECT policy_type, effect, compiled_clauses
         FROM policies
-        WHERE society_id = ? AND status = 'enacted' AND policy_type IS NOT NULL
+        WHERE society_id = ?
+          AND status = 'enacted'
+          AND (policy_type IS NOT NULL OR compiled_clauses IS NOT NULL)
         ORDER BY resolved_round_id DESC, created_at DESC
         """,
         (society_id,),
     ).fetchall()
     effects: list[dict[str, Any]] = []
     for row in rows:
-        effect = json.loads(row["effect"]) if row["effect"] else {}
-        effect["policy_type"] = row["policy_type"]
-        effects.append(effect)
+        if row["policy_type"]:
+            effect = json.loads(row["effect"]) if row["effect"] else {}
+            effect["policy_type"] = row["policy_type"]
+            effects.append(effect)
+        if row["compiled_clauses"]:
+            clauses = json.loads(row["compiled_clauses"])
+            effects.extend(compiled_clauses_to_effects(clauses))
     return effects
 
 
@@ -87,6 +94,20 @@ def archive_allowed_roles(enacted: list[dict[str, Any]]) -> list[str] | None:
 
 def can_write_archive(role: str, enacted: list[dict[str, Any]]) -> bool:
     allowed_roles = archive_allowed_roles(enacted)
+    if allowed_roles is None:
+        return True
+    return role in allowed_roles
+
+
+def direct_message_allowed_roles(enacted: list[dict[str, Any]]) -> list[str] | None:
+    for effect in enacted:
+        if effect.get("policy_type") == "restrict_direct_messages":
+            return list(effect.get("allowed_roles", []))
+    return None
+
+
+def can_send_direct_messages(role: str, enacted: list[dict[str, Any]]) -> bool:
+    allowed_roles = direct_message_allowed_roles(enacted)
     if allowed_roles is None:
         return True
     return role in allowed_roles
@@ -156,6 +177,7 @@ def permissions_snapshot(
     return {
         "can_propose_policy": can_propose_policy(agent, society, enacted),
         "can_vote_policy": can_vote_policy(agent, society, enacted),
+        "can_send_direct_messages": can_send_direct_messages(agent["role"], enacted),
         "can_write_archive": can_write_archive(agent["role"], enacted),
         "can_moderate_messages": can_moderate_messages(agent["role"], enacted),
         "can_view_society_dms": can_view_society_dms(agent["role"], enacted),

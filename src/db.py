@@ -131,6 +131,10 @@ CREATE TABLE IF NOT EXISTS policies (
     proposed_by TEXT NOT NULL REFERENCES agents(id),
     title TEXT NOT NULL,
     description TEXT NOT NULL,
+    policy_type TEXT,
+    effect TEXT,
+    compiled_clauses TEXT,
+    policy_kind TEXT NOT NULL DEFAULT 'symbolic' CHECK(policy_kind IN ('mechanical', 'compiled', 'symbolic')),
     status TEXT NOT NULL CHECK(status IN ('proposed', 'enacted', 'rejected')),
     created_round_id INTEGER NOT NULL REFERENCES rounds(id),
     resolved_round_id INTEGER REFERENCES rounds(id),
@@ -198,6 +202,8 @@ EXPECTED_COLUMNS = {
     "policies": {
         "policy_type": "TEXT",
         "effect": "TEXT",
+        "compiled_clauses": "TEXT",
+        "policy_kind": "TEXT NOT NULL DEFAULT 'symbolic'",
     },
     "events": {
         "embedding": "BLOB",
@@ -229,6 +235,37 @@ def _ensure_columns(conn: sqlite3.Connection) -> None:
         for column_name, definition in columns.items():
             if column_name not in existing:
                 conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+
+
+def _backfill_policy_kinds(conn: sqlite3.Connection) -> None:
+    policy_cols = _table_columns(conn, "policies")
+    if "policy_kind" not in policy_cols:
+        return
+
+    conn.execute(
+        """
+        UPDATE policies
+        SET policy_kind = 'compiled'
+        WHERE compiled_clauses IS NOT NULL
+          AND compiled_clauses != ''
+        """
+    )
+    conn.execute(
+        """
+        UPDATE policies
+        SET policy_kind = 'mechanical'
+        WHERE policy_type IS NOT NULL
+          AND (policy_kind IS NULL OR policy_kind = '' OR policy_kind = 'symbolic')
+        """
+    )
+    conn.execute(
+        """
+        UPDATE policies
+        SET policy_kind = 'symbolic'
+        WHERE policy_type IS NULL
+          AND (policy_kind IS NULL OR policy_kind = '')
+        """
+    )
 
 
 def _seed_societies(conn: sqlite3.Connection) -> None:
@@ -269,6 +306,7 @@ def init_db(db_path: Path | str | None = None) -> sqlite3.Connection:
     conn = get_connection(resolved)
     conn.executescript(SCHEMA)
     _ensure_columns(conn)
+    _backfill_policy_kinds(conn)
     _seed_societies(conn)
     _ensure_open_round(conn)
     conn.commit()
