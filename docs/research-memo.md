@@ -60,7 +60,7 @@ The codebase currently includes:
 
 ## Empirical Results So Far
 
-The empirical story is interesting but still preliminary. The shared repo preserves six zero-fallback LLM runs in `important_runs/`: a labeled Claude proof of concept, a neutral-label Claude ablation, and four neutral-label model-comparison runs. Outside that preserved snapshot, broader local workspaces may also include heuristic baselines, duplicate DB copies, extra exploratory Claude runs, and fallback-heavy Qwen scratch runs in ignored `runs/` directories, so the safest way to read the evidence is still as descriptive case studies plus working interpretations rather than settled results.
+The empirical story is interesting but still preliminary. The shared repo preserves five zero-fallback single-run LLM conditions plus one 10-seed follow-up batch in `important_runs/`: a labeled Claude proof of concept, a neutral-label Claude ablation, four neutral-label single-run model-comparison cases, and a 10-seed Qwen2.5-72B base batch intended as replication. Outside that preserved snapshot, broader local workspaces may also include heuristic baselines, duplicate DB copies, extra exploratory Claude runs, and fallback-heavy Qwen scratch runs in ignored `runs/` directories, so the safest way to read the evidence is still as descriptive case studies plus working interpretations rather than settled results.
 
 ### First LLM Run (Labeled)
 
@@ -84,11 +84,13 @@ The next stage compared three neutral-label runs on the same infrastructure:
 
 That comparison complicates the simple "base models show structural effects, RLHF removes them" story.
 
-The strongest new result came from the 72B true base model. In that run, the oligarchy enacted `Grant Moderation to Role-A Agents`, while the democracy drifted to the highest inequality in the preserved comparison set. The same oligarchy also passed several control-flavored title-only policies, including `Restrict Direct Messages`, but in the DB that particular policy has no mechanical effect. The moderation grant is therefore the clearest example so far of agents using structural asymmetry to expand privileged control under neutral labels, though it resolved in the final round, so the preserved run shows the power-expanding move itself more clearly than any downstream exercise of that power.
+The strongest new result came from the 72B true base model. In that run (`run_004_qwen25_72b_base.db`), the oligarchy enacted `Grant Moderation to Role-A Agents`, while the democracy drifted to the highest inequality in the preserved comparison set. The same oligarchy also passed several control-flavored title-only policies, including `Restrict Direct Messages`, but in the DB that particular policy has no mechanical effect. The moderation grant is still the clearest example in the dataset of agents using structural asymmetry to expand privileged control under neutral labels, though it resolved in the final round, so the preserved run shows the power-expanding move itself more clearly than any downstream exercise of that power.
 
 At the same time, the abliterated 72B instruct model looked much closer to Claude than to the true base model: low inequality, high governance activity, and broadly cooperative policy proposals across all societies. That makes the current leading interpretation more specific than the earlier RLHF story.
 
-**Working interpretation:** instruction tuning itself may be introducing a strong cooperative prior that flattens structural differentiation in these short runs. The true base 72B result is the most interesting counterexample so far, but it remains a single preserved run and not yet a stable finding.
+**Replication attempt and a prompt-surface confound:** a 10-seed follow-up batch was run at the same configuration as `run_004` (`run_006_qwen25_72b_base_batch10`, seeds 1000-1009). None of the 10 seeds reproduced `Grant Moderation to Role-A Agents`. Taken at face value that would demote the original result, but it is not a clean replication: commit `5383ad4` (between run_004 and the batch) rewrote the `propose_policy` action prompt to remove the explicit menu of mechanical policy types (`gather_cap`, `resource_tax`, `grant_moderation`, and so on) and replaced it with free-text description only, with a deterministic server-side compiler that recognizes a subset of clauses. The pre/post prompt surfaces are therefore confounded with seed variance, so the batch cannot cleanly falsify run_004. The batch did preserve the directional democracy > oligarchy inequality pattern (7/10 seeds) but at lower magnitudes than the original, so run_004 is best treated as an upper-tail observation under the older prompt surface.
+
+**Working interpretation:** instruction tuning itself may be introducing a strong cooperative prior that flattens structural differentiation in these short runs. The true base 72B result is the most interesting counterexample, but it is currently **unresolved** — not replicated, and not cleanly falsified, until a clean prompt-controlled rerun is done.
 
 Full analysis with round-by-round metrics and caveats: [docs/findings.md](findings.md)
 
@@ -103,7 +105,7 @@ This matters for:
 - AI systems with role differentiation, delegated authority, or persistent shared memory
 - Alignment research that currently assumes the single-model lens is sufficient
 
-The strongest defensible claim today is not that LLMs reproduce human history one-to-one. It is that multi-agent evaluation appears highly sensitive to framing and model training regime. Labeling can dominate outcomes, and instruction tuning may suppress structural divergence that a sufficiently capable true base model can still show. The cleanest current structural-emergence signal is a moderation-power grant in one 72B true base run, not a broad proof that models generally invent coercive institutions. That means multi-agent safety work may need tighter controls and broader model coverage than single-agent evaluation usually assumes.
+The strongest defensible claim today is not that LLMs reproduce human history one-to-one. It is that multi-agent evaluation appears highly sensitive to framing and model training regime. Labeling can dominate outcomes, and instruction tuning may suppress structural divergence that a sufficiently capable true base model can still show. The cleanest current structural-emergence signal is a moderation-power grant in one 72B true base run whose replication is currently blocked by a prompt-surface confound — not a broad proof that models generally invent coercive institutions. That means multi-agent safety work may need tighter controls and broader model coverage than single-agent evaluation usually assumes, and also that the prompt surface for structured actions is itself a variable worth controlling explicitly.
 
 ## Why This Could Become Multiple Papers
 
@@ -120,11 +122,12 @@ Those are separable contributions, but they share the same simulation substrate.
 
 ## Next Experimental Priorities
 
-1. **Replicate the 72B true base result across seeds.** The moderation-grant / structural-control result is the most interesting signal in the dataset, but it is still `N=1` in the preserved comparison set.
-2. **Longer runs.** `20+` rounds to test whether the 72B base oligarchy keeps consolidating power and whether the 72B base democracy self-corrects its inequality.
+1. **Resolve the 72B true base prompt-surface confound.** A 10-seed replication attempt (`run_006_qwen25_72b_base_batch10`) did not reproduce the moderation grant, but the prompt surface changed in commit `5383ad4` between run_004 and the batch, so seed variance and prompt-surface drift are tangled. The right next step is either (a) check out a pre-`5383ad4` commit and re-run 10 seeds, or (b) add a compiled-clause whitelist to the new prompt that names the recognized mechanical policy types and rerun. Without this, every downstream 72B-base experiment inherits the confound.
+2. **Longer runs.** `20+` rounds to test whether 72B base oligarchies keep consolidating power and whether 72B base democracies self-correct their inequality.
 3. **Higher scarcity.** `10,000` pool across 9 agents is relatively generous. Stronger resource pressure may amplify or suppress the current effects.
 4. **Larger populations.** `10-20` agents per society for free-rider dynamics, coalition formation, and coordination failures at scale.
 5. **Repeated controlled comparisons.** Run matched seeds across true base, instruct, abliterated, and RLHF conditions, using stored run metadata so model/provider/config differences remain auditable.
+6. **Batch replication of neutral-label Claude.** Claude's neutral-label behavior is still documented by a single preserved run plus noisy exploratory Claude runs; a seed batch would quantify the variance currently written off as "noisy."
 
 ## Current Ask
 

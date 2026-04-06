@@ -1,0 +1,702 @@
+{
+  "config": {
+    "num_runs": 10,
+    "agents_per_society": 3,
+    "num_rounds": 5,
+    "base_seed": 1000,
+    "equal_start": true,
+    "override_starting_resources": 100,
+    "override_total_resources": 10000,
+    "strategy": "llm",
+    "model": "Qwen/Qwen2.5-72B",
+    "api_key_env": "OPENAI_API_KEY",
+    "base_url": "https://1dw74tjd2yrs4i-8000.proxy.runpod.net/v1",
+    "completion": true,
+    "token_budget": 8000,
+    "temperature": 0.7,
+    "neutral_labels": true
+  },
+  "aggregated": {
+    "democracy_1": {
+      "inequality_gini": {
+        "mean": 0.139,
+        "std": 0.0765,
+        "min": 0.0227,
+        "max": 0.2874,
+        "n": 10
+      },
+      "participation_rate": {
+        "mean": 1.0,
+        "std": 0.0,
+        "min": 1.0,
+        "max": 1.0,
+        "n": 10
+      },
+      "governance_action_rate": {
+        "mean": 1.2333,
+        "std": 0.4458,
+        "min": 0.3333,
+        "max": 2.0,
+        "n": 10
+      },
+      "governance_participation_rate": {
+        "mean": 0.9333,
+        "std": 0.2108,
+        "min": 0.3333,
+        "max": 1.0,
+        "n": 10
+      },
+      "governance_eligible_participation_rate": {
+        "mean": 0.9333,
+        "std": 0.2108,
+        "min": 0.3333,
+        "max": 1.0,
+        "n": 10
+      },
+      "message_action_share": {
+        "mean": 0.1067,
+        "std": 0.1322,
+        "min": 0.0,
+        "max": 0.4,
+        "n": 10
+      },
+      "public_message_share": {
+        "mean": 0.5,
+        "std": 0.527,
+        "min": 0.0,
+        "max": 1.0,
+        "n": 10
+      },
+      "dm_message_share": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 10
+      },
+      "top_agent_resource_share": {
+        "mean": 0.4444,
+        "std": 0.0766,
+        "min": 0.3523,
+        "max": 0.6168,
+        "n": 10
+      },
+      "top_third_resource_share": {
+        "mean": 0.4444,
+        "std": 0.0766,
+        "min": 0.3523,
+        "max": 0.6168,
+        "n": 10
+      },
+      "policy_enforcement_event_count": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 10
+      },
+      "policy_effect_event_count": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 10
+      },
+      "policy_block_rate": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 10
+      },
+      "common_pool_depletion": {
+        "mean": 0.0471,
+        "std": 0.0293,
+        "min": 0.015,
+        "max": 0.105,
+        "n": 10
+      },
+      "scarcity_pressure": {
+        "mean": 0.926,
+        "std": 0.0338,
+        "min": 0.8575,
+        "max": 0.9619,
+        "n": 10
+      },
+      "governance_engagement": {
+        "mean": 1.2333,
+        "std": 0.4458,
+        "min": 0.3333,
+        "max": 2.0,
+        "n": 10
+      },
+      "communication_openness": {
+        "mean": 0.1067,
+        "std": 0.1322,
+        "min": 0.0,
+        "max": 0.4,
+        "n": 10
+      },
+      "resource_concentration": {
+        "mean": 0.4444,
+        "std": 0.0766,
+        "min": 0.3523,
+        "max": 0.6168,
+        "n": 10
+      },
+      "policy_compliance": {
+        "mean": 1.0,
+        "std": 0.0,
+        "min": 1.0,
+        "max": 1.0,
+        "n": 10
+      },
+      "moderation_rejection_rate": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 10
+      },
+      "policies_resolved": {
+        "mean": 0.5,
+        "std": 0.9718,
+        "min": 0.0,
+        "max": 3.0,
+        "n": 10
+      },
+      "archive_writes": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 10
+      }
+    },
+    "oligarchy_1": {
+      "inequality_gini": {
+        "mean": 0.0944,
+        "std": 0.0506,
+        "min": 0.0143,
+        "max": 0.161,
+        "n": 10
+      },
+      "participation_rate": {
+        "mean": 1.0,
+        "std": 0.0,
+        "min": 1.0,
+        "max": 1.0,
+        "n": 10
+      },
+      "governance_action_rate": {
+        "mean": 1.5333,
+        "std": 0.4216,
+        "min": 0.6667,
+        "max": 2.0,
+        "n": 10
+      },
+      "governance_participation_rate": {
+        "mean": 0.9333,
+        "std": 0.1405,
+        "min": 0.6667,
+        "max": 1.0,
+        "n": 10
+      },
+      "governance_eligible_participation_rate": {
+        "mean": 0.9333,
+        "std": 0.1405,
+        "min": 0.6667,
+        "max": 1.0,
+        "n": 10
+      },
+      "message_action_share": {
+        "mean": 0.1292,
+        "std": 0.1004,
+        "min": 0.0,
+        "max": 0.3333,
+        "n": 10
+      },
+      "public_message_share": {
+        "mean": 0.8,
+        "std": 0.4216,
+        "min": 0.0,
+        "max": 1.0,
+        "n": 10
+      },
+      "dm_message_share": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 10
+      },
+      "top_agent_resource_share": {
+        "mean": 0.3976,
+        "std": 0.0382,
+        "min": 0.3476,
+        "max": 0.4491,
+        "n": 10
+      },
+      "top_third_resource_share": {
+        "mean": 0.3976,
+        "std": 0.0382,
+        "min": 0.3476,
+        "max": 0.4491,
+        "n": 10
+      },
+      "policy_enforcement_event_count": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 10
+      },
+      "policy_effect_event_count": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 10
+      },
+      "policy_block_rate": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 10
+      },
+      "common_pool_depletion": {
+        "mean": 0.0619,
+        "std": 0.0297,
+        "min": 0.0165,
+        "max": 0.11,
+        "n": 10
+      },
+      "scarcity_pressure": {
+        "mean": 0.909,
+        "std": 0.0348,
+        "min": 0.8511,
+        "max": 0.9603,
+        "n": 10
+      },
+      "governance_engagement": {
+        "mean": 1.5333,
+        "std": 0.4216,
+        "min": 0.6667,
+        "max": 2.0,
+        "n": 10
+      },
+      "communication_openness": {
+        "mean": 0.1292,
+        "std": 0.1004,
+        "min": 0.0,
+        "max": 0.3333,
+        "n": 10
+      },
+      "resource_concentration": {
+        "mean": 0.3976,
+        "std": 0.0382,
+        "min": 0.3476,
+        "max": 0.4491,
+        "n": 10
+      },
+      "policy_compliance": {
+        "mean": 1.0,
+        "std": 0.0,
+        "min": 1.0,
+        "max": 1.0,
+        "n": 10
+      },
+      "moderation_rejection_rate": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 10
+      },
+      "policies_resolved": {
+        "mean": 0.6,
+        "std": 0.6992,
+        "min": 0.0,
+        "max": 2.0,
+        "n": 10
+      },
+      "archive_writes": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 10
+      }
+    },
+    "blank_slate_1": {
+      "inequality_gini": {
+        "mean": 0.1017,
+        "std": 0.0595,
+        "min": 0.0325,
+        "max": 0.211,
+        "n": 10
+      },
+      "participation_rate": {
+        "mean": 1.0,
+        "std": 0.0,
+        "min": 1.0,
+        "max": 1.0,
+        "n": 10
+      },
+      "governance_action_rate": {
+        "mean": 1.1333,
+        "std": 0.4216,
+        "min": 0.3333,
+        "max": 1.6667,
+        "n": 10
+      },
+      "governance_participation_rate": {
+        "mean": 0.8667,
+        "std": 0.2331,
+        "min": 0.3333,
+        "max": 1.0,
+        "n": 10
+      },
+      "governance_eligible_participation_rate": {
+        "mean": 0.8667,
+        "std": 0.2331,
+        "min": 0.3333,
+        "max": 1.0,
+        "n": 10
+      },
+      "message_action_share": {
+        "mean": 0.0167,
+        "std": 0.0527,
+        "min": 0.0,
+        "max": 0.1667,
+        "n": 10
+      },
+      "public_message_share": {
+        "mean": 0.1,
+        "std": 0.3162,
+        "min": 0.0,
+        "max": 1.0,
+        "n": 10
+      },
+      "dm_message_share": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 10
+      },
+      "top_agent_resource_share": {
+        "mean": 0.4111,
+        "std": 0.0468,
+        "min": 0.3607,
+        "max": 0.5108,
+        "n": 10
+      },
+      "top_third_resource_share": {
+        "mean": 0.4111,
+        "std": 0.0468,
+        "min": 0.3607,
+        "max": 0.5108,
+        "n": 10
+      },
+      "policy_enforcement_event_count": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 10
+      },
+      "policy_effect_event_count": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 10
+      },
+      "policy_block_rate": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 10
+      },
+      "common_pool_depletion": {
+        "mean": 0.0525,
+        "std": 0.0225,
+        "min": 0.017,
+        "max": 0.0865,
+        "n": 10
+      },
+      "scarcity_pressure": {
+        "mean": 0.9203,
+        "std": 0.0256,
+        "min": 0.8807,
+        "max": 0.9598,
+        "n": 10
+      },
+      "governance_engagement": {
+        "mean": 1.1333,
+        "std": 0.4216,
+        "min": 0.3333,
+        "max": 1.6667,
+        "n": 10
+      },
+      "communication_openness": {
+        "mean": 0.0167,
+        "std": 0.0527,
+        "min": 0.0,
+        "max": 0.1667,
+        "n": 10
+      },
+      "resource_concentration": {
+        "mean": 0.4111,
+        "std": 0.0468,
+        "min": 0.3607,
+        "max": 0.5108,
+        "n": 10
+      },
+      "policy_compliance": {
+        "mean": 1.0,
+        "std": 0.0,
+        "min": 1.0,
+        "max": 1.0,
+        "n": 10
+      },
+      "moderation_rejection_rate": {
+        "mean": 0.0,
+        "std": 0.0,
+        "min": 0.0,
+        "max": 0.0,
+        "n": 10
+      },
+      "policies_resolved": {
+        "mean": 0.5,
+        "std": 0.527,
+        "min": 0.0,
+        "max": 1.0,
+        "n": 10
+      },
+      "archive_writes": {
+        "mean": 0.1,
+        "std": 0.3162,
+        "min": 0.0,
+        "max": 1.0,
+        "n": 10
+      }
+    }
+  },
+  "runs": [
+    {
+      "seed": 1000,
+      "db_path": "runs/batch_72b_base/run_000_seed1000.db",
+      "run_metadata": {
+        "id": 1,
+        "seed": 1000,
+        "strategy": "llm",
+        "model": "Qwen/Qwen2.5-72B",
+        "provider": "openai_completion",
+        "temperature": 0.7,
+        "token_budget": 8000,
+        "neutral_labels": true,
+        "equal_start": true,
+        "starting_resources_override": 100,
+        "total_resources_override": 10000,
+        "completion_mode": true,
+        "base_url": "https://1dw74tjd2yrs4i-8000.proxy.runpod.net/v1",
+        "git_sha": "5383ad4f797cbfacaa43c2a229977f26caaeaab2",
+        "created_at": "2026-04-06 05:20:32"
+      }
+    },
+    {
+      "seed": 1001,
+      "db_path": "runs/batch_72b_base/run_001_seed1001.db",
+      "run_metadata": {
+        "id": 1,
+        "seed": 1001,
+        "strategy": "llm",
+        "model": "Qwen/Qwen2.5-72B",
+        "provider": "openai_completion",
+        "temperature": 0.7,
+        "token_budget": 8000,
+        "neutral_labels": true,
+        "equal_start": true,
+        "starting_resources_override": 100,
+        "total_resources_override": 10000,
+        "completion_mode": true,
+        "base_url": "https://1dw74tjd2yrs4i-8000.proxy.runpod.net/v1",
+        "git_sha": "5383ad4f797cbfacaa43c2a229977f26caaeaab2",
+        "created_at": "2026-04-06 05:30:27"
+      }
+    },
+    {
+      "seed": 1002,
+      "db_path": "runs/batch_72b_base/run_002_seed1002.db",
+      "run_metadata": {
+        "id": 1,
+        "seed": 1002,
+        "strategy": "llm",
+        "model": "Qwen/Qwen2.5-72B",
+        "provider": "openai_completion",
+        "temperature": 0.7,
+        "token_budget": 8000,
+        "neutral_labels": true,
+        "equal_start": true,
+        "starting_resources_override": 100,
+        "total_resources_override": 10000,
+        "completion_mode": true,
+        "base_url": "https://1dw74tjd2yrs4i-8000.proxy.runpod.net/v1",
+        "git_sha": "5383ad4f797cbfacaa43c2a229977f26caaeaab2",
+        "created_at": "2026-04-06 05:37:41"
+      }
+    },
+    {
+      "seed": 1003,
+      "db_path": "runs/batch_72b_base/run_003_seed1003.db",
+      "run_metadata": {
+        "id": 1,
+        "seed": 1003,
+        "strategy": "llm",
+        "model": "Qwen/Qwen2.5-72B",
+        "provider": "openai_completion",
+        "temperature": 0.7,
+        "token_budget": 8000,
+        "neutral_labels": true,
+        "equal_start": true,
+        "starting_resources_override": 100,
+        "total_resources_override": 10000,
+        "completion_mode": true,
+        "base_url": "https://1dw74tjd2yrs4i-8000.proxy.runpod.net/v1",
+        "git_sha": "5383ad4f797cbfacaa43c2a229977f26caaeaab2",
+        "created_at": "2026-04-06 05:46:04"
+      }
+    },
+    {
+      "seed": 1004,
+      "db_path": "runs/batch_72b_base/run_004_seed1004.db",
+      "run_metadata": {
+        "id": 1,
+        "seed": 1004,
+        "strategy": "llm",
+        "model": "Qwen/Qwen2.5-72B",
+        "provider": "openai_completion",
+        "temperature": 0.7,
+        "token_budget": 8000,
+        "neutral_labels": true,
+        "equal_start": true,
+        "starting_resources_override": 100,
+        "total_resources_override": 10000,
+        "completion_mode": true,
+        "base_url": "https://1dw74tjd2yrs4i-8000.proxy.runpod.net/v1",
+        "git_sha": "5383ad4f797cbfacaa43c2a229977f26caaeaab2",
+        "created_at": "2026-04-06 05:53:17"
+      }
+    },
+    {
+      "seed": 1005,
+      "db_path": "runs/batch_72b_base/run_005_seed1005.db",
+      "run_metadata": {
+        "id": 1,
+        "seed": 1005,
+        "strategy": "llm",
+        "model": "Qwen/Qwen2.5-72B",
+        "provider": "openai_completion",
+        "temperature": 0.7,
+        "token_budget": 8000,
+        "neutral_labels": true,
+        "equal_start": true,
+        "starting_resources_override": 100,
+        "total_resources_override": 10000,
+        "completion_mode": true,
+        "base_url": "https://1dw74tjd2yrs4i-8000.proxy.runpod.net/v1",
+        "git_sha": "5383ad4f797cbfacaa43c2a229977f26caaeaab2",
+        "created_at": "2026-04-06 06:00:51"
+      }
+    },
+    {
+      "seed": 1006,
+      "db_path": "runs/batch_72b_base/run_006_seed1006.db",
+      "run_metadata": {
+        "id": 1,
+        "seed": 1006,
+        "strategy": "llm",
+        "model": "Qwen/Qwen2.5-72B",
+        "provider": "openai_completion",
+        "temperature": 0.7,
+        "token_budget": 8000,
+        "neutral_labels": true,
+        "equal_start": true,
+        "starting_resources_override": 100,
+        "total_resources_override": 10000,
+        "completion_mode": true,
+        "base_url": "https://1dw74tjd2yrs4i-8000.proxy.runpod.net/v1",
+        "git_sha": "5383ad4f797cbfacaa43c2a229977f26caaeaab2",
+        "created_at": "2026-04-06 06:07:27"
+      }
+    },
+    {
+      "seed": 1007,
+      "db_path": "runs/batch_72b_base/run_007_seed1007.db",
+      "run_metadata": {
+        "id": 1,
+        "seed": 1007,
+        "strategy": "llm",
+        "model": "Qwen/Qwen2.5-72B",
+        "provider": "openai_completion",
+        "temperature": 0.7,
+        "token_budget": 8000,
+        "neutral_labels": true,
+        "equal_start": true,
+        "starting_resources_override": 100,
+        "total_resources_override": 10000,
+        "completion_mode": true,
+        "base_url": "https://1dw74tjd2yrs4i-8000.proxy.runpod.net/v1",
+        "git_sha": "5383ad4f797cbfacaa43c2a229977f26caaeaab2",
+        "created_at": "2026-04-06 06:16:28"
+      }
+    },
+    {
+      "seed": 1008,
+      "db_path": "runs/batch_72b_base/run_008_seed1008.db",
+      "run_metadata": {
+        "id": 1,
+        "seed": 1008,
+        "strategy": "llm",
+        "model": "Qwen/Qwen2.5-72B",
+        "provider": "openai_completion",
+        "temperature": 0.7,
+        "token_budget": 8000,
+        "neutral_labels": true,
+        "equal_start": true,
+        "starting_resources_override": 100,
+        "total_resources_override": 10000,
+        "completion_mode": true,
+        "base_url": "https://1dw74tjd2yrs4i-8000.proxy.runpod.net/v1",
+        "git_sha": "5383ad4f797cbfacaa43c2a229977f26caaeaab2",
+        "created_at": "2026-04-06 06:25:24"
+      }
+    },
+    {
+      "seed": 1009,
+      "db_path": "runs/batch_72b_base/run_009_seed1009.db",
+      "run_metadata": {
+        "id": 1,
+        "seed": 1009,
+        "strategy": "llm",
+        "model": "Qwen/Qwen2.5-72B",
+        "provider": "openai_completion",
+        "temperature": 0.7,
+        "token_budget": 8000,
+        "neutral_labels": true,
+        "equal_start": true,
+        "starting_resources_override": 100,
+        "total_resources_override": 10000,
+        "completion_mode": true,
+        "base_url": "https://1dw74tjd2yrs4i-8000.proxy.runpod.net/v1",
+        "git_sha": "5383ad4f797cbfacaa43c2a229977f26caaeaab2",
+        "created_at": "2026-04-06 06:34:14"
+      }
+    }
+  ],
+  "run_count": 10
+}
