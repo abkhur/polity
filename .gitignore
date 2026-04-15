@@ -6,7 +6,7 @@ src/__pycache__/
 !polity.db
 *.db-shm
 *.db-wal
-!important_runs/*.db
+!important_runs/*
 *.egg-info/
 runs/
 docs/plans/
