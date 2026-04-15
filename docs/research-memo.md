@@ -48,7 +48,7 @@ The codebase currently includes:
 - Eight mechanical policy types with real effects on simulation state
 - Policy rows tagged as `mechanical`, `compiled`, or `symbolic` for cleaner downstream analysis, with enacted free-text laws compiled deterministically when the server recognizes them
 - Role-based permissions and configurable starting conditions
-- An ablation runner with `--equal-start`, `--start-resources`, `--total-resources`, and `--neutral-labels`
+- An ablation runner with `--equal-start`, `--start-resources`, `--total-resources`, `--neutral-labels`, and `--prompt-surface-mode` (legacy_menu / named_enforceable / free_text_only)
 - LLM integration (OpenAI and Anthropic) with automatic fallback to heuristic agents
 - Tiered context assembly with token budgeting and semantic retrieval
 - Ideology drift tracking via sentence-transformer embeddings, with deterministic local fallback embeddings if the model is unavailable
@@ -60,7 +60,7 @@ The codebase currently includes:
 
 ## Empirical Results So Far
 
-The empirical story is interesting but still preliminary. This checkout preserves six zero-fallback single-run LLM conditions plus one 10-seed follow-up batch in `important_runs/`: a labeled Claude proof of concept, a neutral-label Claude ablation, four neutral-label single-run model-comparison cases, and a 10-seed Qwen2.5-72B base batch intended as replication. Outside that preserved snapshot, broader local workspaces may also include heuristic baselines, duplicate DB copies, extra exploratory Claude runs, and fallback-only prompt-surface pilot artifacts in ignored `runs/` directories, so the safest way to read the evidence is still as descriptive case studies plus working interpretations rather than settled results.
+The empirical story is interesting but still preliminary. The evidence base now includes six zero-fallback single-run LLM conditions in `important_runs/`, one 10-seed free-text batch (`run_006`), and two 5-seed prompt-surface ablation batches under the restored legacy_menu surface (`runs/prompt_surface_ablation_2026_04_13/`). Outside the preserved snapshot, broader local workspaces may also include heuristic baselines, duplicate DB copies, extra exploratory Claude runs, and fallback-only prompt-surface pilot artifacts, so the safest way to read the evidence is still as descriptive case studies plus working interpretations rather than settled results.
 
 ### First LLM Run (Labeled)
 
@@ -88,11 +88,16 @@ The strongest new result came from the 72B true base model. In that run (`run_00
 
 At the same time, the abliterated 72B instruct model looked much closer to Claude than to the true base model: low inequality, high governance activity, and broadly cooperative policy proposals across all societies. That makes the current leading interpretation more specific than the earlier RLHF story.
 
-**Replication attempt and a prompt-surface confound:** a 10-seed follow-up batch was run at the same configuration as `run_004` (`run_006_qwen25_72b_base_batch10`, seeds 1000-1009). None of the 10 seeds reproduced `Grant Moderation to Role-A Agents`. More broadly, the batch enacted many laws but all `93` enacted policies were symbolic: `0` mechanical laws, `0` compiled laws, and `0` policy-enforcement events across the whole batch. Taken at face value that would demote the original result, but it is not a clean replication: commit `5383ad4` (between run_004 and the batch) rewrote the `propose_policy` action prompt to remove the explicit menu of mechanical policy types (`gather_cap`, `resource_tax`, `grant_moderation`, and so on) and replaced it with free-text description only, with a deterministic server-side compiler that recognizes a subset of clauses. The pre/post prompt surfaces are therefore confounded with seed variance, so the batch cannot cleanly falsify run_004. The batch did preserve the directional democracy > oligarchy inequality pattern (7/10 seeds), but `run_004` is best treated as an upper-tail observation under the older prompt surface rather than a central tendency estimate.
+**Replication attempt and prompt-surface confound:** a 10-seed follow-up batch (`run_006_qwen25_72b_base_batch10`, seeds 1000-1009) under the post-`5383ad4` free-text prompt surface produced 0/10 repeats of the moderation grant and `93/93` symbolic-only enactments. That appeared to demote the original result, but the prompt surface had changed: the explicit menu of mechanical policy types was removed.
 
-A later local audit also found two `legacy_menu` pilot DBs under `runs/prompt_surface_ablation_2026_04_06/pilot_legacy_menu`, but those do not resolve the confound. They correctly instantiate `--agents 4` mixed-role oligarchy and the new prompt-mode wiring, yet all `120/120` logged calls fell back after connection errors. Their mechanical enactments are therefore heuristic artifacts, not live 72B ablation results.
+**Prompt-surface ablation (2026-04-13):** Two 5-seed batches restored the legacy menu prompt surface on the same Qwen2.5-72B base model. This narrowed the confound substantially:
 
-**Working interpretation:** instruction tuning itself may be introducing a strong cooperative prior that flattens structural differentiation in these short runs. The true base 72B result is the most interesting counterexample, but it is currently **unresolved** — not replicated, and not cleanly falsified, until a clean prompt-controlled rerun is done.
+- The legacy menu restores abundant mechanical policy proposals (gather caps, taxes, redistributions, moderation grants, access grants) that the free-text surface produced zero of. The prompt surface is confirmed as the dominant variable.
+- Explicit `grant_access` / `grant_moderation` proposals reappeared in 4/10 oligarchy seeds across the legacy-menu batches. Two were `grant_moderation` proposals and neither enacted; one of those two granted moderation to both `oligarch` and `citizen`, so it was not a pure oligarch-only consolidation move. The clearest asymmetric result came from the 4-agent mixed-role oligarchy (3 oligarchs + 1 citizen): seed 1000 enacted `Grant Access to Role-A Agents`, restricting DM inspection to oligarchs only. By contrast, seed 1004's "Role-A" gather-cap titles compiled to ordinary society-wide `gather_cap` effects, not role-targeted enforcement.
+- The democracy > oligarchy Gini direction held across all batches (free-text 7/10 seeds; legacy_menu 3-agent: 0.123 vs 0.062; legacy_menu 4-agent: 0.157 vs 0.081).
+- The original `run_004` is best understood as an upper-tail draw that combined a favorable seed with the menu affordance. Explicit power-expanding proposals do recur under the legacy menu, but only one oligarch-only policy of that class enacted in the 10-seed ablation.
+
+**Working interpretation:** instruction tuning itself may be introducing a strong cooperative prior that flattens structural differentiation in these short runs. The true base 72B result remains the most interesting counterexample. The prompt surface for structured actions is itself a meaningful experimental variable — showing agents a menu of power-expanding verbs is a real affordance, not just incidental scaffolding.
 
 Full analysis with round-by-round metrics and caveats: [docs/findings.md](findings.md)
 
@@ -107,15 +112,15 @@ This matters for:
 - AI systems with role differentiation, delegated authority, or persistent shared memory
 - Alignment research that currently assumes the single-model lens is sufficient
 
-The strongest defensible claim today is not that LLMs reproduce human history one-to-one. It is that multi-agent evaluation appears highly sensitive to framing and model training regime. Labeling can dominate outcomes, and instruction tuning may suppress structural divergence that a sufficiently capable true base model can still show. The cleanest current structural-emergence signal is a moderation-power grant in one 72B true base run whose replication is currently blocked by a prompt-surface confound — not a broad proof that models generally invent coercive institutions. That means multi-agent safety work may need tighter controls and broader model coverage than single-agent evaluation usually assumes, and also that the prompt surface for structured actions is itself a variable worth controlling explicitly.
+The strongest defensible claim today is not that LLMs reproduce human history one-to-one. It is that multi-agent evaluation appears highly sensitive to three independent variables: vocabulary framing, model training regime, and action-prompt surface. Labeling can dominate outcomes; instruction tuning may suppress structural divergence that a sufficiently capable true base model can still show; and the affordances presented in the action prompt (a structured menu vs. free-text) determine whether agents even attempt mechanical power-consolidation. Under legacy-menu prompting, explicit `grant_access` / `grant_moderation` proposals appear in 4/10 oligarchy seeds across the current ablation batches, but only one oligarch-only policy of that class enacts, so these behaviors are present without being a reliable central tendency. That means multi-agent safety work needs tighter controls and broader model coverage than single-agent evaluation usually assumes, and also that the prompt surface for structured actions is itself a first-class experimental variable.
 
 ## Why This Could Become Multiple Papers
 
 Polity is not one question. It is a substrate that could support several linked questions if the experiments replicate:
 
-1. Do governance structures produce measurable institutional divergence in LLM populations? *(Current evidence: mixed and highly sensitive to framing.)*
-2. Does vocabulary priming dominate structural effects in multi-agent evaluation? *(Current evidence: strong enough to warrant serious control, though still based on limited runs.)*
-3. Do instruction-tuning cooperative priors confound multi-agent safety evaluation? *(Increasingly plausible, but still preliminary and based on single-run comparisons.)*
+1. Do governance structures produce measurable institutional divergence in LLM populations? *(Current evidence: the democracy > oligarchy inequality direction is robust across all batches; explicit `grant_access` / `grant_moderation` proposals appear in 4/10 legacy-menu oligarchy seeds, with one oligarch-only enactment.)*
+2. Does vocabulary priming dominate structural effects in multi-agent evaluation? *(Current evidence: strong enough to warrant serious control, confirmed by labeled vs. neutral Claude comparison.)*
+3. Do instruction-tuning cooperative priors confound multi-agent safety evaluation? *(Increasingly plausible: abliterated instruct model behaves like Claude, not like the true base model.)*
 4. Do agents discover censorship, propaganda, surveillance, or information control as useful tools?
 5. Does control over persistent institutional memory shape political outcomes?
 6. Under what conditions do agent societies undergo regime change?
@@ -124,12 +129,12 @@ Those are separable contributions, but they share the same simulation substrate.
 
 ## Next Experimental Priorities
 
-1. **Resolve the 72B true base prompt-surface confound.** A 10-seed replication attempt (`run_006_qwen25_72b_base_batch10`) did not reproduce the moderation grant, but the prompt surface changed in commit `5383ad4` between run_004 and the batch, so seed variance and prompt-surface drift are tangled. The right next step is either (a) check out a pre-`5383ad4` commit and re-run 10 seeds, or (b) add a compiled-clause whitelist to the new prompt that names the recognized mechanical policy types and rerun. Without this, every downstream 72B-base experiment inherits the confound.
-2. **Longer runs.** `20+` rounds to test whether 72B base oligarchies keep consolidating power and whether 72B base democracies self-correct their inequality.
-3. **Higher scarcity.** `10,000` pool across 9 agents is relatively generous. Stronger resource pressure may amplify or suppress the current effects.
-4. **Larger populations.** `10-20` agents per society for free-rider dynamics, coalition formation, and coordination failures at scale.
-5. **Repeated controlled comparisons.** Run matched seeds across true base, instruct, abliterated, and RLHF conditions, using stored run metadata so model/provider/config differences remain auditable.
-6. **Batch replication of neutral-label Claude.** Claude's neutral-label behavior is still documented by a single preserved run plus noisy exploratory Claude runs; a seed batch would quantify the variance currently written off as "noisy."
+1. **Longer runs (20+ rounds) with 4-agent mixed-role legacy_menu.** The prompt-surface confound is now substantially resolved. The 5-round window only shows opening behavior — need to test whether the low-frequency power-consolidation signals escalate into persistent institutional lock-in (Level 5 on the structural-emergence ladder) or fade after initial experimentation.
+2. **Higher scarcity.** `10,000` pool across 12 agents (4-agent setup) is relatively generous. Stronger resource pressure may amplify the ~10% power-consolidation enactment rate by making cooperation more costly.
+3. **Larger populations.** `10-20` agents per society for free-rider dynamics, coalition formation, and coordination failures at scale.
+4. **Repeated controlled comparisons.** Run matched seeds across true base, instruct, abliterated, and RLHF conditions with the legacy_menu surface, using stored run metadata so model/provider/config differences remain auditable.
+5. **Batch replication of neutral-label Claude.** Claude's neutral-label behavior is still documented by a single preserved run plus noisy exploratory runs; a seed batch would quantify the variance.
+6. **Named-enforceable prompt surface.** Test the intermediate `named_enforceable` prompt mode (naming clause types without providing JSON templates) to measure whether naming the verbs alone is sufficient to recover mechanical proposals, or whether the structured template is required.
 
 ## Current Ask
 
